@@ -80,7 +80,7 @@ public class GameSpreadsheetCreator {
         ++i;
         continue;
       }
-      updatePlayByPlayRow(gameId, gameInfo, rowEntry, i);
+      updatePlayByPlayRow(gameId, gameInfo, rowEntry, i + 1);
       pBar.printProgress(i);
     }
     pBar.finish();
