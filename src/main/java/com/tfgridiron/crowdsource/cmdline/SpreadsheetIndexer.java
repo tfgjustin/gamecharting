@@ -132,7 +132,7 @@ public final class SpreadsheetIndexer {
   }
 
   public boolean insertMetadata(String season, SpreadsheetMetadata metadata) throws Exception {
-    System.out.println("insertMetadata(" + season + ", " + metadata.getTitle() + ")");
+    // System.out.println("insertMetadata(" + season + ", " + metadata.getTitle() + ")");
     if (worksheetsBySeason == null) {
       return false;
     }
@@ -162,7 +162,7 @@ public final class SpreadsheetIndexer {
     ListEntry rowEntry = new ListEntry();
     spreadsheetMetadataToListEntry(metadata, rowEntry);
     rowEntry = apiUtils.getSpreadsheetService().insert(worksheetEntry.getListFeedUrl(), rowEntry);
-    System.out.println("Inserted new metadata entry for " + metadata.getTitle());
+    // System.out.println("Inserted new metadata entry for " + metadata.getTitle());
     spreadsheetMetadata.put(metadata.getTitle(), metadata);
     listMetadata.put(metadata.getTitle(), rowEntry);
     return true;
@@ -171,7 +171,7 @@ public final class SpreadsheetIndexer {
   public SpreadsheetMetadata fetchPartialSpreadsheetMetadata(SpreadsheetEntry spreadsheet)
       throws Exception {
     String title = spreadsheet.getTitle().getPlainText();
-    System.out.println("fetchPartialSpreadsheetMetadata(" + title + ")");
+    // System.out.println("fetchPartialSpreadsheetMetadata(" + title + ")");
     Matcher matcher = Constants.GAME_ID_EXTRACTOR.matcher(title);
     if (!matcher.matches()) {
       System.err.println("Invalid game title: could not extract game ID");

@@ -14,6 +14,8 @@
 
 package com.tfgridiron.crowdsource.cmdline;
 
+import com.bcsreport.cfbstats.tables.PlayRow;
+import com.bcsreport.cfbstats.tables.TeamGameStatsRow;
 import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.extensions.java6.auth.oauth2.AuthorizationCodeInstalledApp;
 import com.google.api.client.extensions.jetty.auth.oauth2.LocalServerReceiver;
@@ -34,14 +36,9 @@ import com.google.api.services.drive.model.File;
 import com.google.api.services.drive.model.FileList;
 import com.google.api.services.drive.model.ParentReference;
 import com.google.api.services.drive.model.Permission;
-import com.google.api.services.drive.model.Property;
 import com.google.gdata.client.spreadsheet.SpreadsheetService;
-import com.google.gdata.data.TextConstruct;
-import com.google.gdata.data.spreadsheet.ListEntry;
-import com.google.gdata.data.spreadsheet.ListFeed;
 import com.google.gdata.data.spreadsheet.SpreadsheetEntry;
-import com.google.gdata.data.spreadsheet.SpreadsheetFeed;
-import com.google.gdata.data.spreadsheet.WorksheetEntry;
+import com.google.gdata.util.ServiceException;
 
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -83,6 +80,7 @@ public class GameCharter {
   // TODO(P1): Implement 'forcechecksums'
   // TODO(P2): Progress bars everywhere
   private static final String SET_PARENT_FOLDER_COMMAND = "setparentfolder";
+  private static final String SET_DATA_DIRECTORY_COMMAND = "setdatadirectory";
   private static final String ADMIN_COMMAND = "admin";
   private static final String CHARTER_COMMAND = "charter";
   private static final String GAME_COMMAND = "game";
@@ -95,7 +93,7 @@ public class GameCharter {
   private static final java.io.File DATA_STORE_DIR = new java.io.File(Constants.BASE_DIRECTORY,
       "store");
 
-  private static final int NUM_PLAY_ROWS_PADDING = 15;
+  private static final int MAX_CREATION_RETRIES = 2;
 
   private static final SimpleDateFormat DATE_FORMATTER = new SimpleDateFormat("yyyyMMdd");
   private static final Pattern TEAM_ID_PARSER = Pattern.compile("^0*(\\d+)$");
@@ -139,9 +137,13 @@ public class GameCharter {
   private static TeamIndexer teamIndexer;
   private static ArchiveIndexer archiveIndexer;
   private static ArchiveCreator archiveCreator;
+  private static GameSpreadsheetCreator gameSpreadsheetCreator;
 
   /** Maps seasons to the IDs of the folders in which they should be placed */
   private static Map<Integer, String> seasonToFolderId;
+
+  /** Data for the current season from the local data directory */
+  private static DataArchiveParser localSeasonData;
 
   private enum GameInfoColumns {
     GAME_DATE(0), HOME_ID(1), HOME_NAME(2), HOME_POINTS(3), AWAY_ID(4), AWAY_NAME(5), AWAY_POINTS(6);
@@ -171,6 +173,9 @@ public class GameCharter {
       if (SET_PARENT_FOLDER_COMMAND.equals(args[0])) {
         setParentFolder(args);
         System.exit(0);
+      } else if (SET_DATA_DIRECTORY_COMMAND.equals(args[0])) {
+        setDataDirectory(args);
+        System.exit(0);
       }
       loadConfiguration(true);
       authorize();
@@ -179,6 +184,7 @@ public class GameCharter {
       if (ADMIN_COMMAND.equals(args[0])) {
         adminOp(args);
       } else if (GAME_COMMAND.equals(args[0])) {
+        loadDataDirectory();
         gameOp(args);
       } else if (CHARTER_COMMAND.equals(args[0])) {
         charterOp(args);
@@ -187,7 +193,7 @@ public class GameCharter {
       } else if (ARCHIVE_COMMAND.equals(args[0])) {
         archiveOp(args);
       } else {
-        System.err.println("Invalid command: " + args[0]);
+        System.err.println("Unhandled command: " + args[0]);
         printUsage(1);
       }
       System.exit(0);
@@ -228,7 +234,10 @@ public class GameCharter {
 
   protected static void printUsage(int exitCode) {
     // TODO(P0): Expand this to be a real usage
-    System.out.println("Usage: stuff");
+    System.out.println("List of valid commands:");
+    for (String command : VALID_COMMANDS) {
+      System.out.println("  " + command);
+    }
     System.exit(exitCode);
   }
 
@@ -262,6 +271,32 @@ public class GameCharter {
       System.exit(1);
     }
     properties.setProperty(Constants.PARENT_FOLDER_PROPERTY, m.group(1));
+    storeConfiguration();
+  }
+
+  protected static void setDataDirectory(String[] args) throws Exception {
+    if (args.length != 2) {
+      System.err.println("No data directory specified");
+      printUsage(1);
+    }
+    try {
+      loadConfiguration(false);
+    } catch (Exception e) {
+      // Continue on our merry way.
+    }
+    if (properties == null) {
+      properties = new Properties();
+    }
+    java.io.File dataDirectory = new java.io.File(args[1]);
+    if (!dataDirectory.exists()) {
+      System.err.println("Specified data directory does not exist: " + args[1]);
+      printUsage(1);
+    }
+    if (!dataDirectory.isDirectory()) {
+      System.err.println("Specified data directory path is not a directory: " + args[1]);
+      printUsage(1);
+    }
+    properties.setProperty(Constants.DATA_DIRECTORY_PROPERTY, args[1]);
     storeConfiguration();
   }
 
@@ -323,8 +358,6 @@ public class GameCharter {
       System.err.println("Invalid 'game' operation.");
       printUsage(1);
     }
-    String playByPlayFileName = null;
-    String teamGameStatsFileName = null;
     // By default, add all the games in the file.
     String gameId = GAME_ADDNEW_COMMAND;
     boolean dry_run = false;
@@ -333,34 +366,13 @@ public class GameCharter {
       dry_run = true;
     }
     if (args[1].equals("add")) {
-      if (args.length != 5) {
+      if (args.length != 3) {
         System.err.println("Invalid 'game add' command.");
         printUsage(1);
       }
       gameId = args[2];
-      playByPlayFileName = args[3];
-      teamGameStatsFileName = args[4];
     }
-    if (playByPlayFileName != null && teamGameStatsFileName != null) {
-      PlayByPlayParser playParser = null;
-      TeamGameStatsParser teamStatsParser = null;
-      try {
-        playParser = new PlayByPlayParser(playByPlayFileName);
-        playParser.parse();
-      } catch (IOException e) {
-        System.err.println("Error loading and parsing play-by-play file " + playByPlayFileName);
-        System.exit(1);
-      }
-      try {
-        teamStatsParser = new TeamGameStatsParser(teamGameStatsFileName);
-        teamStatsParser.parse();
-      } catch (IOException e) {
-        System.err.println("Error loading and parsing team-game-stats file "
-            + teamGameStatsFileName);
-        System.exit(1);
-      }
-      cloneGame(teamStatsParser, playParser, gameId, dry_run);
-    }
+    cloneGame(gameId, dry_run);
   }
 
   protected static void forceChecksums(String[] args) throws Exception {
@@ -386,15 +398,32 @@ public class GameCharter {
     }
   }
 
-  private static void loadConfiguration(boolean requireParentFolder) throws Exception {
-    properties = new Properties();
-    InputStream inputStream = new FileInputStream(Constants.CONFIG_FILE);
-    properties.load(inputStream);
-    // PrintWriter writer = new PrintWriter(System.out);
-    // properties.list(writer);
-    // writer.flush();
-    if (requireParentFolder) {
+  protected static void loadDataDirectory() throws IOException {
+    if (properties == null) {
+      System.err.println("No properties set; please run the '" + SET_DATA_DIRECTORY_COMMAND
+          + "' command.");
+      printUsage(1);
+    }
+    String dataDirectory = properties.getProperty(Constants.DATA_DIRECTORY_PROPERTY);
+    if (dataDirectory == null || dataDirectory.isEmpty()) {
+      System.err.println("Data directory property not set; please run the '"
+          + SET_DATA_DIRECTORY_COMMAND + "' command.");
+      printUsage(1);
+    }
+    localSeasonData = new DataArchiveParser(teamIndexer);
+    localSeasonData.loadData(dataDirectory);
+    gameSpreadsheetCreator = new GameSpreadsheetCreator(apiUtils, localSeasonData);
+  }
+
+  private static void loadConfiguration(boolean requireInitialization) throws Exception {
+    if (properties == null) {
+      properties = new Properties();
+      InputStream inputStream = new FileInputStream(Constants.CONFIG_FILE);
+      properties.load(inputStream);
+    }
+    if (requireInitialization) {
       checkProperty(Constants.PARENT_FOLDER_PROPERTY);
+      checkProperty(Constants.DATA_DIRECTORY_PROPERTY);
     }
   }
 
@@ -457,10 +486,9 @@ public class GameCharter {
         new AuthorizationCodeInstalledApp(flow, new LocalServerReceiver()).authorize("user");
   }
 
-  private static void cloneGame(TeamGameStatsParser teamStatsParser, PlayByPlayParser playParser,
-      String targetGameId, boolean dry_run) throws Exception {
-    if (teamStatsParser == null || playParser == null || targetGameId == null) {
-      throw new Exception("Internal error: invalid arguments to cloneGame()");
+  private static void cloneGame(String targetGameId, boolean dry_run) throws Exception {
+    if (targetGameId == null) {
+      throw new IllegalArgumentException("No game ID provided to cloneGame().");
     }
     if (playByPlayTemplateId == null || playByPlayTemplateId.isEmpty()) {
       System.err
@@ -468,9 +496,12 @@ public class GameCharter {
       System.exit(1);
     }
     System.out.println("cloneGame(" + targetGameId + ")");
-    Set<String> gameIds = extractMatchingGames(targetGameId, playParser);
+    Set<String> gameIds =
+        localSeasonData.getSeason().getGameTable()
+            .getMatchingGames(targetGameId.equals(GAME_ADDNEW_COMMAND) ? null : targetGameId);
+    System.out.println("Matched " + gameIds.size() + " games");
     System.out.println("matching: " + gameIds);
-    int MAX_TO_CLONE = 100;
+    int MAX_TO_CLONE = 250;
     int num_cloned = 0;
     List<String> perGameInfo = new ArrayList<String>();
     for (String thisGameId : gameIds) {
@@ -478,21 +509,24 @@ public class GameCharter {
       if (num_cloned >= MAX_TO_CLONE) {
         return;
       }
-      if (!gameIdToInfo(teamStatsParser, thisGameId, perGameInfo) || perGameInfo.size() != 7) {
+      String gameDate = thisGameId.substring(8);
+      if (isFutureGame(gameDate)) {
         continue;
       }
-      String gameDate = perGameInfo.get(GameInfoColumns.GAME_DATE.getValue());
+      if (!gameIdToInfo(thisGameId, perGameInfo) || perGameInfo.size() != 7) {
+        continue;
+      }
       String season = gameDateToSeason(gameDate);
       if (!seasonToFolderId.containsKey(Integer.parseInt(season))) {
         System.err.println("There is no folder for season " + season
             + " under the root play-by-play folder; please create it");
         continue;
       }
-      Map<Integer, List<String>> thisGameData = playParser.getPerGamePlays().get(thisGameId);
+      List<PlayRow> gamePlays = localSeasonData.getSeason().getPlayTable().getPlays(thisGameId);
       // Does this game already exist?
       List<String> titles = new ArrayList<String>();
       Map<String, String> titleToCharter = new HashMap<String, String>();
-      subGamesToClone(season, thisGameId, gameDate, perGameInfo, thisGameData, dry_run,
+      subGamesToClone(season, thisGameId, gameDate, perGameInfo, gamePlays, dry_run,
           getCharters(perGameInfo), titles, titleToCharter);
       num_cloned += titles.size();
       // We now know the sets of (title, charter) tuples we're going to create. Clone the first game
@@ -502,11 +536,11 @@ public class GameCharter {
         continue;
       }
       Map<String, String> titleToId = new HashMap<String, String>();
-      System.out.println("Cloning and populating base data for game " + thisGameId + "; "
-          + titles.get(0));
+      // System.out.println("Cloning and populating base data for game " + thisGameId + "; "
+      // + titles.get(0));
       String baseFileId =
           cloneAndFillUsingTemplate(playByPlayTemplateId, season, titles.get(0), thisGameId,
-              perGameInfo, thisGameData);
+              perGameInfo, gamePlays);
       if (baseFileId == null) {
         continue;
       }
@@ -551,18 +585,14 @@ public class GameCharter {
     return year.toString();
   }
 
-  private static Set<String> extractMatchingGames(String targetGameId, PlayByPlayParser playParser) {
-    Set<String> gameIds = new HashSet<String>();
-    for (Map.Entry<String, Map<Integer, List<String>>> gameData : playParser.getPerGamePlays()
-        .entrySet()) {
-      String thisGameId = gameData.getKey();
-      if (!targetGameId.equals(GAME_ADDNEW_COMMAND) && !targetGameId.equals(thisGameId)) {
-        // A specific game ID was provided, but this isn't it.
-        continue;
-      }
-      gameIds.add(thisGameId);
+  private static boolean isFutureGame(String gameDate) throws ParseException {
+    Calendar gameCal = Calendar.getInstance();
+    gameCal.setTime(DATE_FORMATTER.parse(gameDate));
+    Calendar currCal = Calendar.getInstance();
+    if (gameCal.after(currCal)) {
+      return true;
     }
-    return gameIds;
+    return false;
   }
 
   private static Set<String> getCharters(List<String> perGameInfo) {
@@ -579,8 +609,8 @@ public class GameCharter {
   }
 
   private static void subGamesToClone(String season, String thisGameId, String gameDate,
-      List<String> perGameInfo, Map<Integer, List<String>> thisGameData, boolean dry_run,
-      Set<String> charters, List<String> titles, Map<String, String> titleToCharter) {
+      List<String> perGameInfo, List<PlayRow> thisGameData, boolean dry_run, Set<String> charters,
+      List<String> titles, Map<String, String> titleToCharter) {
     int i = 0;
     Map<String, SpreadsheetMetadata> seasonMetadata =
         spreadsheetIndexer.getSpreadsheetMetadataBySeason(season);
@@ -655,8 +685,7 @@ public class GameCharter {
     archiveIndexer.insertOrUpdateMetadata(newMetadata);
   }
 
-  private static boolean gameIdToInfo(TeamGameStatsParser teamStatsParser, String gameId,
-      List<String> gameInfo) throws Exception {
+  private static boolean gameIdToInfo(String gameId, List<String> gameInfo) throws Exception {
     String awayIdStr = gameId.substring(0, 4);
     String homeIdStr = gameId.substring(4, 8);
     String gameDate = gameId.substring(8);
@@ -681,20 +710,30 @@ public class GameCharter {
           + homeId);
       return false;
     }
-    Integer homePoints = teamStatsParser.getPerGameTeamPoints(gameDate, Integer.toString(homeId));
-    Integer awayPoints = teamStatsParser.getPerGameTeamPoints(gameDate, Integer.toString(awayId));
-    if (homePoints == null || awayPoints == null) {
-      System.err.println("Missing either home or away points for game " + gameId);
+    if (!localSeasonData.hasGameData(gameId)) {
+      System.err.println("Missing game data for game " + gameId);
+      return false;
+    }
+    TeamGameStatsRow homeStats =
+        localSeasonData.getSeason().getTeamGameStatsTable().getTeamGameStats(gameId, homeId);
+    TeamGameStatsRow awayStats =
+        localSeasonData.getSeason().getTeamGameStatsTable().getTeamGameStats(gameId, awayId);
+    if (homeStats == null) {
+      System.err.println("Missing home stats for game " + gameId + " team " + homeId);
+      return false;
+    }
+    if (awayStats == null) {
+      System.err.println("Missing away stats for game " + gameId + " team " + awayId);
       return false;
     }
     gameInfo.clear();
     gameInfo.add(gameDate);
     gameInfo.add(Integer.toString(homeId));
     gameInfo.add(homeTeam);
-    gameInfo.add(homePoints.toString());
+    gameInfo.add(Integer.toString(homeStats.getPoints()));
     gameInfo.add(Integer.toString(awayId));
     gameInfo.add(awayTeam);
-    gameInfo.add(awayPoints.toString());
+    gameInfo.add(Integer.toString(awayStats.getPoints()));
     return true;
   }
 
@@ -718,7 +757,7 @@ public class GameCharter {
   }
 
   private static String cloneAndFillUsingTemplate(String templateFileId, String season,
-      String fileTitle, String gameId, List<String> gameInfo, Map<Integer, List<String>> gamePlays)
+      String fileTitle, String gameId, List<String> gameInfo, List<PlayRow> gamePlays)
       throws Exception {
     if (apiUtils.getUniqueSpreadsheetByName(fileTitle) != null) {
       System.out.println("\nAlready have an entry for spreadsheet " + fileTitle);
@@ -802,195 +841,26 @@ public class GameCharter {
   }
 
   private static SpreadsheetEntry insertBaseData(String gameId, String newTitle,
-      List<String> gameInfo, Map<Integer, List<String>> gamePlays) throws Exception {
-    SpreadsheetEntry spreadsheet = apiUtils.getUniqueSpreadsheetByName(newTitle);
-    if (spreadsheet == null) {
-      return null;
-    }
-    for (WorksheetEntry worksheet : spreadsheet.getWorksheets()) {
-      if (Constants.PLAY_BY_PLAY_WORKSHEET_NAME.equals(worksheet.getTitle().getPlainText())) {
-        updatePlayByPlayWorksheet(newTitle, worksheet, gameInfo, gamePlays);
-        return spreadsheet;
+      List<String> gameInfo, List<PlayRow> plays) {
+    SpreadsheetEntry spreadsheet = null;
+    for (int i = 0; i < MAX_CREATION_RETRIES; ++i) {
+      try {
+        spreadsheet = apiUtils.getUniqueSpreadsheetByName(newTitle);
+        if (spreadsheet == null) {
+          return null;
+        }
+        return gameSpreadsheetCreator.populateSpreadsheet(newTitle, gameId, gameInfo, plays,
+            spreadsheet);
+      } catch (IOException exception) {
+        System.err.println("I/O error while populating data for game " + gameId);
+      } catch (ServiceException exception) {
+        System.err.println("Google services error while populating data for game " + gameId);
+      }
+      if ((i + 1) < MAX_CREATION_RETRIES) {
+        System.err.println("Retrying game " + gameId);
       }
     }
     return null;
-  }
-
-  private static void updatePlayByPlayWorksheet(String newTitle, WorksheetEntry worksheet,
-      List<String> gameInfo, Map<Integer, List<String>> gamePlays) throws Exception {
-    ListFeed listFeed = spreadsheetService.getFeed(worksheet.getListFeedUrl(), ListFeed.class);
-    System.out.println("Found " + listFeed.getEntries().size() + " rows in spreadsheet and "
-        + gamePlays.size() + " plays in game");
-    for (int i = 0; i < gamePlays.size(); ++i) {
-      List<String> playInfo = gamePlays.get(i + 1);
-      if (playInfo == null) {
-        System.err.println("Missing play " + (i + 1));
-        continue;
-      }
-      ListEntry rowEntry = listFeed.getEntries().get(i);
-      if (rowEntry == null) {
-        System.err.println("Missing row entry " + i + " in spreadsheet " + newTitle);
-        continue;
-      }
-      updatePlayByPlayRow(gameInfo, rowEntry, playInfo);
-      printProgress("Uploading plays", i, gamePlays.size());
-    }
-    System.out.println();
-    setFinalScore(gameInfo, gamePlays.size() + 1, listFeed.getEntries().get(gamePlays.size()));
-    int numValidRows = gamePlays.size() + NUM_PLAY_ROWS_PADDING + 1; // 1 for the final score
-    int numToDelete = listFeed.getEntries().size() - numValidRows - 1; // 1 for the header
-    resizeWorksheet(newTitle, worksheet, numValidRows + 1, numToDelete);
-  }
-
-  private static void setFinalScore(List<String> gameInfo, int numPlays, ListEntry rowEntry)
-      throws Exception {
-    rowEntry.getCustomElements().setValueLocal("Play", Integer.toString(numPlays));
-    rowEntry.getCustomElements().setValueLocal("QTR", "Final");
-    rowEntry.getCustomElements().setValueLocal("Home",
-        gameInfo.get(GameInfoColumns.HOME_NAME.getValue()));
-    rowEntry.getCustomElements().setValueLocal("HS",
-        gameInfo.get(GameInfoColumns.HOME_POINTS.getValue()));
-    rowEntry.getCustomElements().setValueLocal("Away",
-        gameInfo.get(GameInfoColumns.AWAY_NAME.getValue()));
-    rowEntry.getCustomElements().setValueLocal("AS",
-        gameInfo.get(GameInfoColumns.AWAY_POINTS.getValue()));
-    rowEntry.update();
-  }
-
-  private static void resizeWorksheet(String newTitle, WorksheetEntry worksheet,
-      int firstInvalidRow, int numToDelete) throws Exception {
-    System.out.println("Removing " + numToDelete + " rows from spreadsheet " + newTitle);
-    URL listFeedUrl = worksheet.getListFeedUrl();
-    for (int i = 0; i < numToDelete; ++i) {
-      ListFeed listFeed = spreadsheetService.getFeed(listFeedUrl, ListFeed.class);
-      listFeed.getEntries().get(firstInvalidRow).delete();
-      printProgress("Resizing", i + 1, numToDelete);
-    }
-    System.out.println();
-  }
-
-  private static void printProgress(String tag, Integer numDone, Integer numToDo) {
-    if (numDone == null || numToDo == null || numToDo <= 0 || numDone < 0) {
-      return;
-    }
-    int WIDTH = 60;
-    Float pctDone = numDone.floatValue();
-    pctDone /= numToDo;
-    if (pctDone > 100f) {
-      pctDone = 1.0f;
-    }
-    Float numToPrint = pctDone * WIDTH;
-    System.out.print("\r" + tag + " [");
-    for (int i = 0; i < WIDTH; ++i) {
-      if (i < numToPrint.intValue()) {
-        System.out.print("=");
-      } else if (i == numToPrint.intValue()) {
-        System.out.print(">");
-      } else {
-        System.out.print(" ");
-      }
-    }
-    System.out.print("]");
-  }
-
-  private static void updatePlayByPlayRow(List<String> gameInfo, ListEntry rowEntry,
-      List<String> playInfo) throws Exception {
-    // TODO(P3): enum this
-    String playNumber = playInfo.get(1);
-    String quarter = playInfo.get(2);
-    String clock = secondsToTime(playInfo.get(3));
-    String offenseId = playInfo.get(4);
-    String defenseId = playInfo.get(5);
-    String offPts = playInfo.get(6);
-    String defPts = playInfo.get(7);
-    String down = playInfo.get(8);
-    String distance = playInfo.get(9);
-    String spot = playInfo.get(10);
-    String playType = normalizePlayType(playInfo.get(11));
-    // TODO(P2): use constants
-    rowEntry.getCustomElements().setValueLocal("Play", playNumber);
-    rowEntry.getCustomElements().setValueLocal("QTR", quarter);
-    rowEntry.getCustomElements().setValueLocal("Clock", clock);
-    if (gameInfo.get(GameInfoColumns.HOME_ID.getValue()).equals(offenseId)
-        && gameInfo.get(GameInfoColumns.AWAY_ID.getValue()).equals(defenseId)) {
-      // Home team is on offense
-      rowEntry.getCustomElements().setValueLocal("HS", offPts);
-      rowEntry.getCustomElements().setValueLocal("AS", defPts);
-      rowEntry.getCustomElements().setValueLocal("Offense",
-          gameInfo.get(GameInfoColumns.HOME_NAME.getValue()));
-    } else if (gameInfo.get(GameInfoColumns.AWAY_ID.getValue()).equals(offenseId)
-        && gameInfo.get(GameInfoColumns.HOME_ID.getValue()).equals(defenseId)) {
-      // Away team is on offense
-      rowEntry.getCustomElements().setValueLocal("AS", offPts);
-      rowEntry.getCustomElements().setValueLocal("HS", defPts);
-      rowEntry.getCustomElements().setValueLocal("Offense",
-          gameInfo.get(GameInfoColumns.AWAY_NAME.getValue()));
-    } else {
-      // Not sure who's on offense
-      System.err.println("Neither " + gameInfo.get(GameInfoColumns.HOME_ID.getValue()) + " nor "
-          + gameInfo.get(GameInfoColumns.AWAY_ID.getValue()) + " is on offense: " + offenseId);
-      return;
-    }
-    rowEntry.getCustomElements().setValueLocal("Home",
-        gameInfo.get(GameInfoColumns.HOME_NAME.getValue()));
-    rowEntry.getCustomElements().setValueLocal("Away",
-        gameInfo.get(GameInfoColumns.AWAY_NAME.getValue()));
-    if (down != null) {
-      rowEntry.getCustomElements().setValueLocal("Down", down);
-    }
-    if (distance != null) {
-      rowEntry.getCustomElements().setValueLocal("Dist", distance);
-    }
-    if (spot != null) {
-      rowEntry.getCustomElements().setValueLocal("YdLine", spot);
-    }
-    rowEntry.getCustomElements().setValueLocal("PlayType", playType);
-    rowEntry.update();
-  }
-
-  private static String secondsToTime(String secondsLeft) {
-    if (secondsLeft == null || secondsLeft.isEmpty()) {
-      return "";
-    }
-    int numSeconds = Integer.parseInt(secondsLeft);
-    int minutes = numSeconds / 60;
-    int seconds = numSeconds % 60;
-    return String.format("%d:%02d", minutes, seconds);
-  }
-
-  private static String normalizePlayType(String playType) {
-    return Constants.NORMALIZED_PLAY_NAME_MAP.get(playType);
-  }
-
-  private static void listAllDriveEntries() throws Exception {
-    Drive.Files.List fileList = drive.files().list();
-    FileList files = fileList.execute();
-    for (File f : files.getItems()) {
-      System.out.println("File " + f.getTitle() + " ID: " + f.getId());
-      System.out.println("\tLast modified: " + f.getModifiedDate() + " MD5: " + f.getMd5Checksum());
-      System.out.println("\tKind: " + f.getKind() + " Mime: " + f.getMimeType());
-      List<Property> props = f.getProperties();
-      String pStr = (props != null) ? props.toString() : "(null-properties)";
-      System.out.println("\tProperties: " + pStr);
-    }
-  }
-
-  private static void listAllSpreadsheets() throws Exception {
-    // Make a request to the API and get all spreadsheets.
-    SpreadsheetFeed feed =
-        spreadsheetService.getFeed(new URL(Constants.PRIVATE_FULL_SPREADSHEET_FEED_URL),
-            SpreadsheetFeed.class);
-    List<SpreadsheetEntry> spreadsheets = feed.getEntries();
-
-    // Iterate through all of the spreadsheets returned
-    for (SpreadsheetEntry spreadsheet : spreadsheets) {
-      System.out.println("Title: " + spreadsheet.getTitle().getPlainText());
-      System.out.println("\tID: " + spreadsheet.getId());
-      TextConstruct t = spreadsheet.getSummary();
-      String gameId = (t != null) ? t.getPlainText() : "(null-construct)";
-      System.out.println("\tGameID: " + gameId);
-      System.out.println("\tKey: " + spreadsheet.getKey());
-    }
   }
 
   private static void listAllIndexedSpreadsheets(String worksheetName) throws Exception {
@@ -1014,15 +884,10 @@ public class GameCharter {
     return;
   }
 
-  private static void dumpSpreadsheetInfo(SpreadsheetEntry spreadsheet) throws Exception {
-    // Print the title of this spreadsheet to the screen
-    System.out.println("\n" + spreadsheet.getTitle().getPlainText() + "\t" + spreadsheet.getId());
-    System.out.println("\t\"" + spreadsheet.getSummary().getPlainText() + "\"\n");
-  }
-
   private static Set<String> makeValidCommands() {
-    Set<String> s = new HashSet<String>(8);
+    Set<String> s = new HashSet<String>(10);
     s.add(SET_PARENT_FOLDER_COMMAND);
+    s.add(SET_DATA_DIRECTORY_COMMAND);
     s.add(ADMIN_COMMAND);
     s.add(CHARTER_COMMAND);
     s.add(GAME_COMMAND);

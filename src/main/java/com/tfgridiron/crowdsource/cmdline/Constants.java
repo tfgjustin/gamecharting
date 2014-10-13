@@ -33,6 +33,7 @@ public class Constants {
   public static final String CONFIG_FILE_HEADER = "Configuration parameters for "
       + APPLICATION_NAME;
   public static final String PARENT_FOLDER_PROPERTY = "parent_folder_id";
+  public static final String DATA_DIRECTORY_PROPERTY = "data_directory";
   public static final String PLAY_BY_PLAY_WORKSHEET_NAME = "PBP";
   public static final String ARCHIVE_PLAY_BY_PLAY_OUTFILE = "play.csv";
   public static final String PLAY_BY_PLAY_TEMPLATE_TITLE = "Play-by-Play Template";
