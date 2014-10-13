@@ -73,15 +73,15 @@ public class GameSpreadsheetCreator {
     System.out.println("Found " + listFeed.getEntries().size() + " rows in spreadsheet and "
         + gamePlays.size() + " plays in game");
     ProgressBar pBar = new ProgressBar("Uploading plays", gamePlays.size());
-    for (int i = 0; i < gamePlays.size(); ++i) {
+    for (int i = 0; i < gamePlays.size(); i++) {
       ListEntry rowEntry = listFeed.getEntries().get(i);
       if (rowEntry == null) {
         System.err.println("Missing row entry " + i + " in spreadsheet " + newTitle);
-        ++i;
-        continue;
       }
-      updatePlayByPlayRow(gameId, gameInfo, rowEntry, i + 1);
-      pBar.printProgress(i);
+      else {
+        updatePlayByPlayRow(gameId, gameInfo, rowEntry, i + 1);
+        pBar.printProgress(i);
+      }
     }
     pBar.finish();
     setFinalScore(gameInfo, gamePlays.size() + 1, listFeed.getEntries().get(gamePlays.size()));
