@@ -35,61 +35,54 @@ public class TeamIndexer {
   private final static String FULL_NAME_HEADER = "FullName";
 
   private final ApiUtils apiUtils;
-  // The spreadsheet and worksheet we care about
-  private SpreadsheetEntry spreadsheetEntry = null;
-  private WorksheetEntry worksheetEntry = null;
+ 
 
-  private Map<Integer, Integer> ncaaIdToPaddedId;
-  private Map<Integer, String> ncaaIdToCapsName;
-  private Map<Integer, String> ncaaIdToShortName;
-  private Map<Integer, String> ncaaIdToFullName;
+  private Map<Integer, TeamNames> ncaaIdToTeamNames;
 
+  
+  
   public TeamIndexer(ApiUtils apiUtils) {
     this.apiUtils = apiUtils;
   }
 
   public void loadIndex() throws Exception {
-    if (ncaaIdToPaddedId != null && ncaaIdToCapsName != null && ncaaIdToShortName != null
-        && ncaaIdToFullName != null) {
-      return;
-    }
-    if (spreadsheetEntry == null) {
-      spreadsheetEntry = apiUtils.getIndexSpreadsheetEntry();
-    }
+    
+      if (ncaaIdToTeamNames != null){
+          return;
+      }
+    SpreadsheetEntry spreadsheetEntry = apiUtils.getIndexSpreadsheetEntry();
+    
     if (spreadsheetEntry == null) {
       System.err.println("Could not get the spreadsheet entry for the index");
       return;
     }
-    ncaaIdToPaddedId = new HashMap<Integer, Integer>();
-    ncaaIdToCapsName = new HashMap<Integer, String>();
-    ncaaIdToShortName = new HashMap<Integer, String>();
-    ncaaIdToFullName = new HashMap<Integer, String>();
+    ncaaIdToTeamNames = new HashMap<Integer, TeamNames>();
     for (WorksheetEntry worksheet : spreadsheetEntry.getWorksheets()) {
       if (Constants.INDEX_TEAMS_WORKSHEET_TITLE.equals(worksheet.getTitle().getPlainText())) {
-        worksheetEntry = worksheet;
-        buildIndex();
+        
+        buildIndex(worksheet);
         break;
       }
     }
   }
 
   public Integer getPaddedId(int teamId) {
-    return ncaaIdToPaddedId.get(teamId);
+    return ncaaIdToTeamNames.get(teamId).getPaddedId();
   }
 
   public String getCapsName(int teamId) {
-    return ncaaIdToCapsName.get(teamId);
+    return ncaaIdToTeamNames.get(teamId).getCapsName();
   }
 
   public String getShortName(int teamId) {
-    return ncaaIdToShortName.get(teamId);
+    return ncaaIdToTeamNames.get(teamId).getShortName();
   }
 
   public String getFullName(int teamId) {
-    return ncaaIdToFullName.get(teamId);
+    return ncaaIdToTeamNames.get(teamId).getFullName();
   }
 
-  private void buildIndex() throws Exception {
+  private void buildIndex(WorksheetEntry worksheetEntry) throws Exception {
     if (worksheetEntry == null) {
       return;
     }
@@ -114,9 +107,33 @@ public class TeamIndexer {
     }
     Integer ncaaId = Integer.parseInt(ncaaIdStr);
     Integer paddedId = Integer.parseInt(paddedIdStr);
-    ncaaIdToPaddedId.put(ncaaId, paddedId);
-    ncaaIdToCapsName.put(ncaaId, capsName);
-    ncaaIdToShortName.put(ncaaId, shortName);
-    ncaaIdToFullName.put(ncaaId, fullName);
+    TeamNames names = new TeamNames(paddedId, capsName, shortName, fullName);
+    ncaaIdToTeamNames.put(ncaaId, names);
+    
+  }
+  
+  private class TeamNames{
+      final Integer paddedId;
+      final String capsName;
+      final String shortName;
+      final String fullName;
+      public TeamNames(Integer paddedId, String capsName, String shortName, String fullName){
+          this.paddedId = paddedId;
+          this.capsName = capsName;
+          this.shortName = shortName;
+          this.fullName = fullName;
+      }
+      public Integer getPaddedId(){
+          return this.paddedId;
+      }
+      public String getCapsName(){
+          return this.capsName;
+      }
+      public String getShortName(){
+          return this.shortName;
+      }
+      public String getFullName(){
+          return this.fullName;
+      }
   }
 }
