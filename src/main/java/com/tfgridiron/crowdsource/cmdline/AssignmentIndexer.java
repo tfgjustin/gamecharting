@@ -43,7 +43,7 @@ public class AssignmentIndexer {
   private final ApiUtils apiUtils;
   private final TeamIndexer teamIndexer;
   // The spreadsheet and worksheet we care about
-  private SpreadsheetEntry spreadsheetEntry = null;
+  
   private WorksheetEntry worksheetEntry = null;
 
   private Set<String> adminAccounts = null;
@@ -65,20 +65,26 @@ public class AssignmentIndexer {
         && assignmentsToRow != null && permissionIdToEmail != null) {
       return;
     }
-    if (spreadsheetEntry == null) {
-      spreadsheetEntry = apiUtils.getIndexSpreadsheetEntry();
-    }
+    SpreadsheetEntry spreadsheetEntry = apiUtils.getIndexSpreadsheetEntry();
+    
     if (spreadsheetEntry == null) {
       System.err.println("Could not get the spreadsheet entry for the index");
       return;
     }
+    
+    // reset worksheet object, and then go find the proper worksheet in the spreadsheet
+    worksheetEntry = null;
     for (WorksheetEntry worksheet : spreadsheetEntry.getWorksheets()) {
       if (Constants.INDEX_ASSIGNMENTS_WORKSHEET_TITLE.equals(worksheet.getTitle().getPlainText())) {
         worksheetEntry = worksheet;
-        buildIndex();
         break;
       }
     }
+    if (worksheetEntry== null){
+        System.err.println("Could not find the Index Assignments Worksheet: "+Constants.INDEX_ASSIGNMENTS_WORKSHEET_TITLE);
+        return;
+    }
+    buildIndex(worksheetEntry);
   }
 
   public Set<String> getAdmins() {
@@ -167,23 +173,26 @@ public class AssignmentIndexer {
     for (Map.Entry<String, Integer> user : inputMap.entrySet()) {
       if (user.getValue() >= MUST_HAVE_PRIORITY) {
         mustHaveUsers.put(user.getKey(), user.getValue());
-      } else if (user.getValue() > bestMaybePriority) {
+      } 
+      else if (user.getValue() > bestMaybePriority) {
         bestMaybeUser = user.getKey();
         bestMaybePriority = user.getValue();
       }
     }
     if (!mustHaveUsers.isEmpty()) {
       return mustHaveUsers;
-    } else if (bestMaybeUser != null) {
+    } 
+    else if (bestMaybeUser != null) {
       Map<String, Integer> maybeUsers = new HashMap<String, Integer>();
       maybeUsers.put(bestMaybeUser, bestMaybePriority);
       return maybeUsers;
-    } else {
+    } 
+    else {
       return mustHaveUsers;
     }
   }
 
-  private void buildIndex() throws Exception {
+  private void buildIndex(WorksheetEntry worksheetEntry) throws Exception {
     if (worksheetEntry == null) {
       return;
     }
@@ -249,7 +258,7 @@ public class AssignmentIndexer {
     }
     row.delete();
     // We have to rebuild the index because deleting the row borks the spreadsheet
-    buildIndex();
+    buildIndex(worksheetEntry);
   }
 
   private void addCharterInternal(String userEmail, Integer teamId, Integer priority, ListEntry row)
@@ -309,7 +318,7 @@ public class AssignmentIndexer {
     }
     row.delete();
     // We have to rebuild the index because deleting the row borks the spreadsheet
-    buildIndex();
+    buildIndex(worksheetEntry);
   }
 
   private void addAnyPoolInternal(String userEmail, ListEntry row) throws Exception {
@@ -343,7 +352,7 @@ public class AssignmentIndexer {
     }
     row.delete();
     // We have to rebuild the index because deleting the row borks the spreadsheet
-    buildIndex();
+    buildIndex(worksheetEntry);
   }
 
 

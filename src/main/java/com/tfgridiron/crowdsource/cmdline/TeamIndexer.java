@@ -89,11 +89,11 @@ public class TeamIndexer {
     ListFeed listFeed =
         apiUtils.getSpreadsheetService().getFeed(worksheetEntry.getListFeedUrl(), ListFeed.class);
     for (ListEntry rowEntry : listFeed.getEntries()) {
-      createOneTeamEntry(worksheetEntry.getTitle().getPlainText(), rowEntry);
+      createOneTeamEntry( rowEntry);
     }
   }
 
-  private void createOneTeamEntry(String worksheetTitle, ListEntry rowEntry) throws Exception {
+  private void createOneTeamEntry(ListEntry rowEntry) throws Exception {
     String ncaaIdStr = rowEntry.getCustomElements().getValue(NCAA_ID_HEADER);
     String paddedIdStr = rowEntry.getCustomElements().getValue(PADDED_ID_HEADER);
     String capsName = rowEntry.getCustomElements().getValue(CAPS_NAME_HEADER);
