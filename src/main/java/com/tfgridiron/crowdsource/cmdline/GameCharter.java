@@ -48,11 +48,8 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -95,7 +92,6 @@ public class GameCharter {
 
   private static final int MAX_CREATION_RETRIES = 2;
 
-  private static final SimpleDateFormat DATE_FORMATTER = new SimpleDateFormat("yyyyMMdd");
   private static final Pattern TEAM_ID_PARSER = Pattern.compile("^0*(\\d+)$");
 
   /**
@@ -510,13 +506,13 @@ public class GameCharter {
         return;
       }
       String gameDate = thisGameId.substring(8);
-      if (isFutureGame(gameDate)) {
+      if (CalendarUtils.isFutureGame(gameDate)) {
         continue;
       }
       if (!gameIdToInfo(thisGameId, perGameInfo) || perGameInfo.size() != 7) {
         continue;
       }
-      String season = gameDateToSeason(gameDate);
+      String season = CalendarUtils.gameDateToSeason(gameDate);
       // TODO(P0): Make this happen automatically for per-year and per-season.
       if (!seasonToFolderId.containsKey(Integer.parseInt(season))) {
         System.err.println("There is no folder for season " + season
@@ -572,28 +568,6 @@ public class GameCharter {
     String homeTeam = perGameInfo.get(GameInfoColumns.HOME_NAME.getValue());
     String awayTeam = perGameInfo.get(GameInfoColumns.AWAY_NAME.getValue());
     return gameDate + ": " + awayTeam + " at " + homeTeam + " (GID:" + gameId + "-" + index + ")";
-  }
-
-  private static String gameDateToSeason(String gameDate) throws ParseException {
-    Calendar cal = Calendar.getInstance();
-    cal.setTime(DATE_FORMATTER.parse(gameDate));
-    Integer year = cal.get(Calendar.YEAR);
-    Integer month = cal.get(Calendar.MONTH);
-    if (month < Calendar.AUGUST) {
-      // If it's earlier than august, this is from the previous year
-      year -= 1;
-    }
-    return year.toString();
-  }
-
-  private static boolean isFutureGame(String gameDate) throws ParseException {
-    Calendar gameCal = Calendar.getInstance();
-    gameCal.setTime(DATE_FORMATTER.parse(gameDate));
-    Calendar currCal = Calendar.getInstance();
-    if (gameCal.after(currCal)) {
-      return true;
-    }
-    return false;
   }
 
   private static Set<String> getCharters(List<String> perGameInfo) {
@@ -700,10 +674,7 @@ public class GameCharter {
           .println("Either away ID " + awayIdStr + " or home ID " + homeIdStr + " is invalid");
       return false;
     }
-    try {
-      DATE_FORMATTER.parse(gameDate);
-    } catch (ParseException e) {
-      System.err.println("Invalid game date: " + gameDate);
+    if (!CalendarUtils.isValidGameDate(gameDate)) {
       return false;
     }
     int awayId = Integer.parseInt(awayIdStr);
