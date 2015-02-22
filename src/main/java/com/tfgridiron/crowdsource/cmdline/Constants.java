@@ -27,7 +27,7 @@ public class Constants {
   public static final String FOLDER_MIME = "application/vnd.google-apps.folder";
   public static final String GOOGLE_DRIVE_HOST = "drive.google.com";
   public static final Pattern FOLDER_ID_EXTRACTOR = Pattern.compile("^folders/(.*)$");
-  // TODO(P0): Handle path joining properly
+  // TODO(P2): Handle path joining properly
   public static final String BASE_DIRECTORY = System.getProperty("user.home") + "/.game_charting";
   public static final String CONFIG_FILE = BASE_DIRECTORY + "/config.properties";
   public static final String CONFIG_FILE_HEADER = "Configuration parameters for "

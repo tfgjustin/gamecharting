@@ -77,8 +77,7 @@ public class GameSpreadsheetCreator {
       ListEntry rowEntry = listFeed.getEntries().get(i);
       if (rowEntry == null) {
         System.err.println("Missing row entry " + i + " in spreadsheet " + newTitle);
-      }
-      else {
+      } else {
         updatePlayByPlayRow(gameId, gameInfo, rowEntry, i + 1);
         pBar.printProgress(i);
       }

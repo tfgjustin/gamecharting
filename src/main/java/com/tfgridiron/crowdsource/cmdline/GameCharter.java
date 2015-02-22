@@ -517,6 +517,7 @@ public class GameCharter {
         continue;
       }
       String season = gameDateToSeason(gameDate);
+      // TODO(P0): Make this happen automatically for per-year and per-season.
       if (!seasonToFolderId.containsKey(Integer.parseInt(season))) {
         System.err.println("There is no folder for season " + season
             + " under the root play-by-play folder; please create it");
@@ -632,14 +633,16 @@ public class GameCharter {
 
   private static void updateArchive(String season) throws Exception {
     System.out.println("updateArchive(" + season + ")");
-    // TODO(P0): Force a refresh of all the metadata
+    // Step 1: Refresh all the metadata
+    spreadsheetIndexer.refreshMetadataFromSources(season);
     Set<SpreadsheetMetadata> includedMetadata = new TreeSet<SpreadsheetMetadata>();
+    // Step 2: Now that the Google Drive data is refreshed, grab a local copy of the metadata.
     Map<String, SpreadsheetMetadata> allFiles =
         spreadsheetIndexer.getSpreadsheetMetadataBySeason(season);
     if (allFiles != null) {
       Set<SpreadsheetMetadata> allMetadata = new HashSet<SpreadsheetMetadata>(allFiles.values());
       for (SpreadsheetMetadata spreadsheetMetadata : allMetadata) {
-        if (spreadsheetMetadata.getIsDone()) {
+        if (spreadsheetMetadata.getIsDone() && spreadsheetMetadata.getUseThis()) {
           includedMetadata.add(spreadsheetMetadata);
         }
       }
@@ -653,9 +656,10 @@ public class GameCharter {
     if (includedMetadata.isEmpty()) {
       System.out.println("No completed worksheets present");
       if (archiveMetadata != null) {
+        // Scenario 4
         System.err.println("Archive for worksheet " + season
             + " exists, but no completed worksheets; bailing");
-      }
+      } // else Scenario 3
       return;
     }
     if (archiveMetadata != null) {
@@ -665,7 +669,7 @@ public class GameCharter {
       String checksum = archiveCreator.checksumFileCollection(spreadsheetIndexer, includedMetadata);
       if (archiveMetadata.getLastUpdated().getValue() >= maxLastUpdated.getValue()) {
         // This archive is newer than the set of files.
-        System.out.println("Current archive is not older than the spreadsheets in the archive");
+        System.out.println("Current archive is newer than all the spreadsheets in the archive.");
         return;
       }
       // The timestamp on the archive is older than the collective spreadsheet timestamp, but what
@@ -673,7 +677,8 @@ public class GameCharter {
       if (checksum.equals(archiveMetadata.getChecksum())) {
         System.out
             .println("Current archive is older than spreadsheets, but checksums are the same");
-        // TODO(P1): update the timestamp on the archive
+        archiveMetadata.setLastUpdated(maxLastUpdated);
+        archiveIndexer.insertOrUpdateMetadata(archiveMetadata);
         return;
       }
     }
@@ -781,6 +786,7 @@ public class GameCharter {
   }
 
   private static void getPerYearFolders() throws IOException {
+    // TODO(P0): Make per-year per-week folders.
     if (seasonToFolderId != null) {
       return;
     }
