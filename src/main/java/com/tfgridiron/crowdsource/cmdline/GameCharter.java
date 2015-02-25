@@ -135,8 +135,8 @@ public class GameCharter {
   private static ArchiveCreator archiveCreator;
   private static GameSpreadsheetCreator gameSpreadsheetCreator;
 
-  /** Maps seasons to the IDs of the folders in which they should be placed */
-  private static Map<Integer, String> seasonToFolderId;
+  /** Maps pairs of (season, week) to the IDs of the folders in which they should be placed */
+  private static Map<Integer, Map<String, String>> seasonToFolderId;
 
   /** Data for the current season from the local data directory */
   private static DataArchiveParser localSeasonData;
@@ -213,7 +213,9 @@ public class GameCharter {
     getPerYearFolders();
     spreadsheetService = new SpreadsheetService(Constants.APPLICATION_NAME);
     spreadsheetService.setOAuth2Credentials(credential);
-    apiUtils = new ApiUtils(drive, spreadsheetService);
+    apiUtils =
+        new ApiUtils(drive, spreadsheetService,
+            properties.getProperty(Constants.PARENT_FOLDER_PROPERTY));
   }
 
   private static void loadIndexes() throws Exception {
@@ -513,10 +515,17 @@ public class GameCharter {
         continue;
       }
       String season = CalendarUtils.gameDateToSeason(gameDate);
+      String week = CalendarUtils.gameDateToWeek(gameDate);
       // TODO(P0): Make this happen automatically for per-year and per-season.
-      if (!seasonToFolderId.containsKey(Integer.parseInt(season))) {
-        System.err.println("There is no folder for season " + season
-            + " under the root play-by-play folder; please create it");
+      Map<String, String> weekFolders = seasonToFolderId.get(Integer.parseInt(season));
+      if (weekFolders == null) {
+        System.err.println("There is no folder for season '" + season
+            + "' under the root play-by-play folder; please create it");
+        continue;
+      }
+      String weekFolderId = weekFolders.get(week);
+      if (weekFolderId == null) {
+        System.err.println("There is no folder for week '" + week + "' in season '" + season + "'");
         continue;
       }
       List<PlayRow> gamePlays = localSeasonData.getSeason().getPlayTable().getPlays(thisGameId);
@@ -536,7 +545,7 @@ public class GameCharter {
       // System.out.println("Cloning and populating base data for game " + thisGameId + "; "
       // + titles.get(0));
       String baseFileId =
-          cloneAndFillUsingTemplate(playByPlayTemplateId, season, titles.get(0), thisGameId,
+          cloneAndFillUsingTemplate(playByPlayTemplateId, season, week, titles.get(0), thisGameId,
               perGameInfo, gamePlays);
       if (baseFileId == null) {
         continue;
@@ -546,12 +555,13 @@ public class GameCharter {
         System.out.println("Cloning duplicate data for game " + thisGameId + "; from "
             + titles.get(0) + " to " + titles.get(i));
         String fileId =
-            cloneAndFillUsingTemplate(baseFileId, season, titles.get(i), thisGameId, null, null);
+            cloneAndFillUsingTemplate(baseFileId, season, week, titles.get(i), thisGameId, null,
+                null);
         titleToId.put(titles.get(i), fileId);
       }
       for (String title : titles) {
         setFilePermissions(titleToId.get(title), titleToCharter.get(title));
-        SpreadsheetEntry spreadsheet = apiUtils.getUniqueSpreadsheetByName(title);
+        SpreadsheetEntry spreadsheet = apiUtils.getSpreadsheetByTitleAndFolder(title, weekFolderId);
         SpreadsheetMetadata metadata =
             spreadsheetIndexer.fetchPartialSpreadsheetMetadata(spreadsheet);
         metadata.setAssignedTo(titleToCharter.get(title));
@@ -608,7 +618,7 @@ public class GameCharter {
   private static void updateArchive(String season) throws Exception {
     System.out.println("updateArchive(" + season + ")");
     // Step 1: Refresh all the metadata
-    spreadsheetIndexer.refreshMetadataFromSources(season);
+    spreadsheetIndexer.refreshMetadataFromSources(season, seasonToFolderId.get(season));
     Set<SpreadsheetMetadata> includedMetadata = new TreeSet<SpreadsheetMetadata>();
     // Step 2: Now that the Google Drive data is refreshed, grab a local copy of the metadata.
     Map<String, SpreadsheetMetadata> allFiles =
@@ -616,7 +626,7 @@ public class GameCharter {
     if (allFiles != null) {
       Set<SpreadsheetMetadata> allMetadata = new HashSet<SpreadsheetMetadata>(allFiles.values());
       for (SpreadsheetMetadata spreadsheetMetadata : allMetadata) {
-        if (spreadsheetMetadata.getIsDone() && spreadsheetMetadata.getUseThis()) {
+        if (spreadsheetMetadata.getUseThis()) {
           includedMetadata.add(spreadsheetMetadata);
         }
       }
@@ -659,7 +669,7 @@ public class GameCharter {
     System.out.println("Adding new archive " + season);
     // If we got here, we need to either add a new archive or update an existing one.
     ArchiveMetadata newMetadata =
-        archiveCreator.createArchive(season, spreadsheetIndexer,
+        archiveCreator.createArchive(season, seasonToFolderId.get(season), spreadsheetIndexer,
             properties.getProperty(Constants.PARENT_FOLDER_PROPERTY));
     archiveIndexer.insertOrUpdateMetadata(newMetadata);
   }
@@ -733,13 +743,22 @@ public class GameCharter {
   }
 
   private static String cloneAndFillUsingTemplate(String templateFileId, String season,
-      String fileTitle, String gameId, List<String> gameInfo, List<PlayRow> gamePlays)
+      String week, String fileTitle, String gameId, List<String> gameInfo, List<PlayRow> gamePlays)
       throws Exception {
-    if (apiUtils.getUniqueSpreadsheetByName(fileTitle) != null) {
+    Map<String, String> weekFolders = seasonToFolderId.get(Integer.parseInt(season));
+    if (weekFolders == null) {
+      System.err.println("No folders for season " + season);
+      return null;
+    }
+    String parentFolderId = weekFolders.get(week);
+    if (parentFolderId == null) {
+      System.err.println("No folder for season " + season + " week " + week);
+      return null;
+    }
+    if (apiUtils.getSpreadsheetByTitleAndFolder(fileTitle, parentFolderId) != null) {
       System.out.println("\nAlready have an entry for spreadsheet " + fileTitle);
       return null;
     }
-    String parentFolderId = seasonToFolderId.get(Integer.parseInt(season));
     ParentReference parent = new ParentReference();
     parent.setId(parentFolderId);
     File copiedFile = new File();
@@ -747,7 +766,8 @@ public class GameCharter {
     copiedFile.setParents(Collections.singletonList(parent));
     File newFile = drive.files().copy(templateFileId, copiedFile).execute();
     if (gameInfo != null && gamePlays != null) {
-      SpreadsheetEntry newSpreadsheet = insertBaseData(gameId, fileTitle, gameInfo, gamePlays);
+      SpreadsheetEntry newSpreadsheet =
+          insertBaseData(newFile, gameId, fileTitle, gameInfo, gamePlays);
       if (newSpreadsheet == null) {
         System.err.println("Error inserting base data for " + fileTitle);
         return null;
@@ -757,7 +777,6 @@ public class GameCharter {
   }
 
   private static void getPerYearFolders() throws IOException {
-    // TODO(P0): Make per-year per-week folders.
     if (seasonToFolderId != null) {
       return;
     }
@@ -765,8 +784,9 @@ public class GameCharter {
     if (rootParentId == null) {
       return;
     }
-    seasonToFolderId = new HashMap<Integer, String>();
-    Children.List children = drive.children().list(rootParentId);
+    seasonToFolderId = new HashMap<Integer, Map<String, String>>();
+    String query = "mimeType = '" + Constants.FOLDER_MIME + "'";
+    Children.List children = drive.children().list(rootParentId).setQ(query);
     for (ChildReference child : children.execute().getItems()) {
       File f = drive.files().get(child.getId()).execute();
       if (Constants.FOLDER_MIME.equals(f.getMimeType())) {
@@ -775,12 +795,24 @@ public class GameCharter {
           if (year == null || year < 2000 || year > 2050) {
             continue;
           }
-          seasonToFolderId.put(year, f.getId());
+          seasonToFolderId.put(year, getPerWeekFolders(f.getId()));
         } catch (NumberFormatException nfe) {
           continue;
         }
       }
     }
+  }
+
+  private static Map<String, String> getPerWeekFolders(String parentId) throws IOException {
+    Map<String, String> weekFolders = new HashMap<String, String>();
+    weekFolders.put(Constants.SEASON_FOLDER_TAG, parentId);
+    String query = "mimeType = '" + Constants.FOLDER_MIME + "'";
+    Children.List children = drive.children().list(parentId).setQ(query);
+    for (ChildReference child : children.execute().getItems()) {
+      File f = drive.files().get(child.getId()).execute();
+      weekFolders.put(f.getTitle(), f.getId());
+    }
+    return weekFolders;
   }
 
   private static void setFilePermissions(String fileId, String charterUser) throws Exception {
@@ -817,12 +849,12 @@ public class GameCharter {
     }
   }
 
-  private static SpreadsheetEntry insertBaseData(String gameId, String newTitle,
+  private static SpreadsheetEntry insertBaseData(File fileInfo, String gameId, String newTitle,
       List<String> gameInfo, List<PlayRow> plays) {
     SpreadsheetEntry spreadsheet = null;
     for (int i = 0; i < MAX_CREATION_RETRIES; ++i) {
       try {
-        spreadsheet = apiUtils.getUniqueSpreadsheetByName(newTitle);
+        spreadsheet = apiUtils.getSpreadsheetByDriveFile(fileInfo);
         if (spreadsheet == null) {
           return null;
         }

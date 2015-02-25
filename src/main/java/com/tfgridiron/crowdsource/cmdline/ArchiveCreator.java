@@ -44,10 +44,10 @@ public class ArchiveCreator {
     this.apiUtils = apiUtils;
   }
 
-  public ArchiveMetadata createArchive(String season, SpreadsheetIndexer spreadsheetIndexer,
-      String destinationFolderId) throws Exception {
+  public ArchiveMetadata createArchive(String season, Map<String, String> weekFolders,
+      SpreadsheetIndexer spreadsheetIndexer, String destinationFolderId) throws Exception {
     // 0: Refresh everything
-    spreadsheetIndexer.refreshMetadataFromSources(season);
+    spreadsheetIndexer.refreshMetadataFromSources(season, weekFolders);
     // 1: Check to make sure the worksheet exists
     Map<String, SpreadsheetMetadata> spreadsheetMetadata =
         spreadsheetIndexer.getSpreadsheetMetadataBySeason(season);

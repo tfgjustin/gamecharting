@@ -25,6 +25,7 @@ import java.util.regex.Pattern;
 public class Constants {
   public static final String APPLICATION_NAME = "TempoFreeGridiron-Crowdsource/1.0";
   public static final String FOLDER_MIME = "application/vnd.google-apps.folder";
+  public static final String SEASON_FOLDER_TAG = "TOPLEVEL";
   public static final String GOOGLE_DRIVE_HOST = "drive.google.com";
   public static final Pattern FOLDER_ID_EXTRACTOR = Pattern.compile("^folders/(.*)$");
   // TODO(P2): Handle path joining properly
