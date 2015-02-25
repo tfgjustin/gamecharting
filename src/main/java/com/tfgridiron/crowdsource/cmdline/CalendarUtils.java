@@ -23,8 +23,8 @@ import java.util.Calendar;
  * 
  */
 public class CalendarUtils {
-  public static final String BOWL_WEEK = "bowls";
-  public static final String SEASON_WEEK_TAG = "week";
+  public static final String BOWL_WEEK = "Bowls";
+  public static final String SEASON_WEEK_TAG = "Week";
   // Historically the first day of bowl games is no earlier than December 15th.
   private static final int BOWL_START_MONTH = Calendar.DECEMBER;
   private static final int BOWL_START_DAY_OF_MONTH = 15;
@@ -58,7 +58,7 @@ public class CalendarUtils {
     }
     // It's not in bowl season, so it must be the regular season.
     Integer weekNum = cal.get(Calendar.WEEK_OF_YEAR) - SEASON_START_WEEK_OFFSET;
-    return String.format("%s%02d", SEASON_WEEK_TAG, weekNum);
+    return String.format("%s %02d", SEASON_WEEK_TAG, weekNum);
   }
 
   public static boolean isFutureGame(String gameDate) throws ParseException {
