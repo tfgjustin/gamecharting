@@ -256,7 +256,8 @@ public class GameCharter {
     try {
       parentFolder = new URL(args[1]);
     } catch (MalformedURLException e) {
-      System.exit(1);
+        e.printStackTrace(System.err);
+        System.exit(1);
     }
     if (!Constants.GOOGLE_DRIVE_HOST.equals(parentFolder.getHost())) {
       System.err.println("Invalid Google Drive hostname: " + parentFolder.getHost());
@@ -270,6 +271,7 @@ public class GameCharter {
     }
     properties.setProperty(Constants.PARENT_FOLDER_PROPERTY, m.group(1));
     storeConfiguration();
+    System.out.println(Constants.PARENT_FOLDER_PROPERTY +" is set to "+m.group(1));
   }
 
   protected static void setDataDirectory(String[] args) throws Exception {
@@ -296,6 +298,7 @@ public class GameCharter {
     }
     properties.setProperty(Constants.DATA_DIRECTORY_PROPERTY, args[1]);
     storeConfiguration();
+    System.out.println(Constants.DATA_DIRECTORY_PROPERTY +"is set to "+args[1]);
   }
 
   protected static void createIndex(String[] args) throws Exception {
