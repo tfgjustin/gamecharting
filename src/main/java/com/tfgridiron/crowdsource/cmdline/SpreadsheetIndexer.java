@@ -88,16 +88,20 @@ public final class SpreadsheetIndexer {
     }
   }
 
-  public void refreshMetadataFromSources(String season) throws Exception {
+  public void refreshMetadataFromSources(String season, Map<String, String> weekFolders)
+      throws Exception {
     if (perSeasonMetadata == null || perSeasonListEntries == null) {
       System.out.println("Spreadsheets have not been indexed for " + season);
       return;
     }
     Map<String, SpreadsheetMetadata> seasonGames = perSeasonMetadata.get(season);
     for (SpreadsheetMetadata existingMetadata : seasonGames.values()) {
+      String gameId = existingMetadata.getGameId();
+      String gameDate = gameId.substring(gameId.length() - 8);
+      String weekFolderId = weekFolders.get(CalendarUtils.gameDateToWeek(gameDate));
       System.out.println("Forcing metadata refresh of " + existingMetadata.getTitle());
       SpreadsheetEntry gameSpreadsheet =
-          apiUtils.getUniqueSpreadsheetByName(existingMetadata.getTitle());
+          apiUtils.getSpreadsheetByTitleAndFolder(existingMetadata.getTitle(), weekFolderId);
       if (gameSpreadsheet == null) {
         System.err.println("Cannot find spreadsheet " + existingMetadata.getTitle());
         continue;

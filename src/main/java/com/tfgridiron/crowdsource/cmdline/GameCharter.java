@@ -48,11 +48,8 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -95,7 +92,6 @@ public class GameCharter {
 
   private static final int MAX_CREATION_RETRIES = 2;
 
-  private static final SimpleDateFormat DATE_FORMATTER = new SimpleDateFormat("yyyyMMdd");
   private static final Pattern TEAM_ID_PARSER = Pattern.compile("^0*(\\d+)$");
 
   /**
@@ -139,8 +135,8 @@ public class GameCharter {
   private static ArchiveCreator archiveCreator;
   private static GameSpreadsheetCreator gameSpreadsheetCreator;
 
-  /** Maps seasons to the IDs of the folders in which they should be placed */
-  private static Map<Integer, String> seasonToFolderId;
+  /** Maps pairs of (season, week) to the IDs of the folders in which they should be placed */
+  private static Map<Integer, Map<String, String>> seasonToFolderId;
 
   /** Data for the current season from the local data directory */
   private static DataArchiveParser localSeasonData;
@@ -181,28 +177,21 @@ public class GameCharter {
       authorize();
       connectToServices();
       loadIndexes();
-          switch (args[0]) {
-              case ADMIN_COMMAND:
-                  adminOp(args);
-                  break;
-              case GAME_COMMAND:
-                  loadDataDirectory();
-                  gameOp(args);
-                  break;
-              case CHARTER_COMMAND:
-                  charterOp(args);
-                  break;
-              case FORCE_CHECKSUMS_COMMAND:
-                  forceChecksums(args);
-                  break;
-              case ARCHIVE_COMMAND:
-                  archiveOp(args);
-                  break;
-              default:
-                  System.err.println("Unhandled command: " + args[0]);
-                  printUsage(1);
-                  break;
-          }
+      if (ADMIN_COMMAND.equals(args[0])) {
+        adminOp(args);
+      } else if (GAME_COMMAND.equals(args[0])) {
+        loadDataDirectory();
+        gameOp(args);
+      } else if (CHARTER_COMMAND.equals(args[0])) {
+        charterOp(args);
+      } else if (FORCE_CHECKSUMS_COMMAND.equals(args[0])) {
+        forceChecksums(args);
+      } else if (ARCHIVE_COMMAND.equals(args[0])) {
+        archiveOp(args);
+      } else {
+        System.err.println("Unhandled command: " + args[0]);
+        printUsage(1);
+      }
       System.exit(0);
     } catch (IOException e) {
       System.err.println(e.getMessage());
@@ -224,7 +213,9 @@ public class GameCharter {
     getPerYearFolders();
     spreadsheetService = new SpreadsheetService(Constants.APPLICATION_NAME);
     spreadsheetService.setOAuth2Credentials(credential);
-    apiUtils = new ApiUtils(drive, spreadsheetService);
+    apiUtils =
+        new ApiUtils(drive, spreadsheetService,
+            properties.getProperty(Constants.PARENT_FOLDER_PROPERTY));
   }
 
   private static void loadIndexes() throws Exception {
@@ -510,24 +501,31 @@ public class GameCharter {
     System.out.println("matching: " + gameIds);
     int MAX_TO_CLONE = 250;
     int num_cloned = 0;
-    
+    List<String> perGameInfo = new ArrayList<String>();
     for (String thisGameId : gameIds) {
       // TODO(P0): Remove this before distribution
       if (num_cloned >= MAX_TO_CLONE) {
         return;
       }
       String gameDate = thisGameId.substring(8);
-      if (isFutureGame(gameDate)) {
+      if (CalendarUtils.isFutureGame(gameDate)) {
         continue;
       }
-      List<String> perGameInfo = gameIdToInfo(thisGameId);
-      if (perGameInfo.size() != 7) {
+      if (!gameIdToInfo(thisGameId, perGameInfo) || perGameInfo.size() != 7) {
         continue;
       }
-      String season = gameDateToSeason(gameDate);
-      if (!seasonToFolderId.containsKey(Integer.parseInt(season))) {
-        System.err.println("There is no folder for season " + season
-            + " under the root play-by-play folder; please create it");
+      String season = CalendarUtils.gameDateToSeason(gameDate);
+      String week = CalendarUtils.gameDateToWeek(gameDate);
+      // TODO(P0): Make this happen automatically for per-year and per-season.
+      Map<String, String> weekFolders = seasonToFolderId.get(Integer.parseInt(season));
+      if (weekFolders == null) {
+        System.err.println("There is no folder for season '" + season
+            + "' under the root play-by-play folder; please create it");
+        continue;
+      }
+      String weekFolderId = weekFolders.get(week);
+      if (weekFolderId == null) {
+        System.err.println("There is no folder for week '" + week + "' in season '" + season + "'");
         continue;
       }
       List<PlayRow> gamePlays = localSeasonData.getSeason().getPlayTable().getPlays(thisGameId);
@@ -547,7 +545,7 @@ public class GameCharter {
       // System.out.println("Cloning and populating base data for game " + thisGameId + "; "
       // + titles.get(0));
       String baseFileId =
-          cloneAndFillUsingTemplate(playByPlayTemplateId, season, titles.get(0), thisGameId,
+          cloneAndFillUsingTemplate(playByPlayTemplateId, season, week, titles.get(0), thisGameId,
               perGameInfo, gamePlays);
       if (baseFileId == null) {
         continue;
@@ -557,12 +555,13 @@ public class GameCharter {
         System.out.println("Cloning duplicate data for game " + thisGameId + "; from "
             + titles.get(0) + " to " + titles.get(i));
         String fileId =
-            cloneAndFillUsingTemplate(baseFileId, season, titles.get(i), thisGameId, null, null);
+            cloneAndFillUsingTemplate(baseFileId, season, week, titles.get(i), thisGameId, null,
+                null);
         titleToId.put(titles.get(i), fileId);
       }
       for (String title : titles) {
         setFilePermissions(titleToId.get(title), titleToCharter.get(title));
-        SpreadsheetEntry spreadsheet = apiUtils.getUniqueSpreadsheetByName(title);
+        SpreadsheetEntry spreadsheet = apiUtils.getSpreadsheetByTitleAndFolder(title, weekFolderId);
         SpreadsheetMetadata metadata =
             spreadsheetIndexer.fetchPartialSpreadsheetMetadata(spreadsheet);
         metadata.setAssignedTo(titleToCharter.get(title));
@@ -579,28 +578,6 @@ public class GameCharter {
     String homeTeam = perGameInfo.get(GameInfoColumns.HOME_NAME.getValue());
     String awayTeam = perGameInfo.get(GameInfoColumns.AWAY_NAME.getValue());
     return gameDate + ": " + awayTeam + " at " + homeTeam + " (GID:" + gameId + "-" + index + ")";
-  }
-
-  private static String gameDateToSeason(String gameDate) throws ParseException {
-    Calendar cal = Calendar.getInstance();
-    cal.setTime(DATE_FORMATTER.parse(gameDate));
-    Integer year = cal.get(Calendar.YEAR);
-    Integer month = cal.get(Calendar.MONTH);
-    if (month < Calendar.AUGUST) {
-      // If it's earlier than august, this is from the previous year
-      year -= 1;
-    }
-    return year.toString();
-  }
-
-  private static boolean isFutureGame(String gameDate) throws ParseException {
-    Calendar gameCal = Calendar.getInstance();
-    gameCal.setTime(DATE_FORMATTER.parse(gameDate));
-    Calendar currCal = Calendar.getInstance();
-    if (gameCal.after(currCal)) {
-      return true;
-    }
-    return false;
   }
 
   private static Set<String> getCharters(List<String> perGameInfo) {
@@ -640,14 +617,16 @@ public class GameCharter {
 
   private static void updateArchive(String season) throws Exception {
     System.out.println("updateArchive(" + season + ")");
-    // TODO(P0): Force a refresh of all the metadata
+    // Step 1: Refresh all the metadata
+    spreadsheetIndexer.refreshMetadataFromSources(season, seasonToFolderId.get(season));
     Set<SpreadsheetMetadata> includedMetadata = new TreeSet<SpreadsheetMetadata>();
+    // Step 2: Now that the Google Drive data is refreshed, grab a local copy of the metadata.
     Map<String, SpreadsheetMetadata> allFiles =
         spreadsheetIndexer.getSpreadsheetMetadataBySeason(season);
     if (allFiles != null) {
       Set<SpreadsheetMetadata> allMetadata = new HashSet<SpreadsheetMetadata>(allFiles.values());
       for (SpreadsheetMetadata spreadsheetMetadata : allMetadata) {
-        if (spreadsheetMetadata.getIsDone()) {
+        if (spreadsheetMetadata.getUseThis()) {
           includedMetadata.add(spreadsheetMetadata);
         }
       }
@@ -661,9 +640,10 @@ public class GameCharter {
     if (includedMetadata.isEmpty()) {
       System.out.println("No completed worksheets present");
       if (archiveMetadata != null) {
+        // Scenario 4
         System.err.println("Archive for worksheet " + season
             + " exists, but no completed worksheets; bailing");
-      }
+      } // else Scenario 3
       return;
     }
     if (archiveMetadata != null) {
@@ -673,7 +653,7 @@ public class GameCharter {
       String checksum = archiveCreator.checksumFileCollection(spreadsheetIndexer, includedMetadata);
       if (archiveMetadata.getLastUpdated().getValue() >= maxLastUpdated.getValue()) {
         // This archive is newer than the set of files.
-        System.out.println("Current archive is not older than the spreadsheets in the archive");
+        System.out.println("Current archive is newer than all the spreadsheets in the archive.");
         return;
       }
       // The timestamp on the archive is older than the collective spreadsheet timestamp, but what
@@ -681,34 +661,31 @@ public class GameCharter {
       if (checksum.equals(archiveMetadata.getChecksum())) {
         System.out
             .println("Current archive is older than spreadsheets, but checksums are the same");
-        // TODO(P1): update the timestamp on the archive
+        archiveMetadata.setLastUpdated(maxLastUpdated);
+        archiveIndexer.insertOrUpdateMetadata(archiveMetadata);
         return;
       }
     }
     System.out.println("Adding new archive " + season);
     // If we got here, we need to either add a new archive or update an existing one.
     ArchiveMetadata newMetadata =
-        archiveCreator.createArchive(season, spreadsheetIndexer,
+        archiveCreator.createArchive(season, seasonToFolderId.get(season), spreadsheetIndexer,
             properties.getProperty(Constants.PARENT_FOLDER_PROPERTY));
     archiveIndexer.insertOrUpdateMetadata(newMetadata);
   }
 
-  private static List<String> gameIdToInfo(String gameId) throws Exception {
+  private static boolean gameIdToInfo(String gameId, List<String> gameInfo) throws Exception {
     String awayIdStr = gameId.substring(0, 4);
     String homeIdStr = gameId.substring(4, 8);
     String gameDate = gameId.substring(8);
-    List<String> gameInfo = new ArrayList<String>();
     if (!TEAM_ID_PARSER.matcher(awayIdStr).matches()
         || !TEAM_ID_PARSER.matcher(homeIdStr).matches()) {
       System.err
           .println("Either away ID " + awayIdStr + " or home ID " + homeIdStr + " is invalid");
-      return gameInfo;
+      return false;
     }
-    try {
-      DATE_FORMATTER.parse(gameDate);
-    } catch (ParseException e) {
-      System.err.println("Invalid game date: " + gameDate);
-      return gameInfo;
+    if (!CalendarUtils.isValidGameDate(gameDate)) {
+      return false;
     }
     int awayId = Integer.parseInt(awayIdStr);
     int homeId = Integer.parseInt(homeIdStr);
@@ -717,11 +694,11 @@ public class GameCharter {
     if (awayTeam == null || homeTeam == null) {
       System.err.println("Game: " + gameId + "; one of these IDs is invalid: " + awayId + " or "
           + homeId);
-      return gameInfo;
+      return false;
     }
     if (!localSeasonData.hasGameData(gameId)) {
       System.err.println("Missing game data for game " + gameId);
-      return gameInfo;
+      return false;
     }
     TeamGameStatsRow homeStats =
         localSeasonData.getSeason().getTeamGameStatsTable().getTeamGameStats(gameId, homeId);
@@ -729,11 +706,11 @@ public class GameCharter {
         localSeasonData.getSeason().getTeamGameStatsTable().getTeamGameStats(gameId, awayId);
     if (homeStats == null) {
       System.err.println("Missing home stats for game " + gameId + " team " + homeId);
-      return gameInfo;
+      return false;
     }
     if (awayStats == null) {
       System.err.println("Missing away stats for game " + gameId + " team " + awayId);
-      return gameInfo;
+      return false;
     }
     gameInfo.clear();
     gameInfo.add(gameDate);
@@ -743,7 +720,7 @@ public class GameCharter {
     gameInfo.add(Integer.toString(awayId));
     gameInfo.add(awayTeam);
     gameInfo.add(Integer.toString(awayStats.getPoints()));
-    return gameInfo;
+    return true;
   }
 
   private static void cachePlayByPlayTemplateId() throws Exception {
@@ -766,13 +743,22 @@ public class GameCharter {
   }
 
   private static String cloneAndFillUsingTemplate(String templateFileId, String season,
-      String fileTitle, String gameId, List<String> gameInfo, List<PlayRow> gamePlays)
+      String week, String fileTitle, String gameId, List<String> gameInfo, List<PlayRow> gamePlays)
       throws Exception {
-    if (apiUtils.getUniqueSpreadsheetByName(fileTitle) != null) {
+    Map<String, String> weekFolders = seasonToFolderId.get(Integer.parseInt(season));
+    if (weekFolders == null) {
+      System.err.println("No folders for season " + season);
+      return null;
+    }
+    String parentFolderId = weekFolders.get(week);
+    if (parentFolderId == null) {
+      System.err.println("No folder for season " + season + " week " + week);
+      return null;
+    }
+    if (apiUtils.getSpreadsheetByTitleAndFolder(fileTitle, parentFolderId) != null) {
       System.out.println("\nAlready have an entry for spreadsheet " + fileTitle);
       return null;
     }
-    String parentFolderId = seasonToFolderId.get(Integer.parseInt(season));
     ParentReference parent = new ParentReference();
     parent.setId(parentFolderId);
     File copiedFile = new File();
@@ -780,7 +766,8 @@ public class GameCharter {
     copiedFile.setParents(Collections.singletonList(parent));
     File newFile = drive.files().copy(templateFileId, copiedFile).execute();
     if (gameInfo != null && gamePlays != null) {
-      SpreadsheetEntry newSpreadsheet = insertBaseData(gameId, fileTitle, gameInfo, gamePlays);
+      SpreadsheetEntry newSpreadsheet =
+          insertBaseData(newFile, gameId, fileTitle, gameInfo, gamePlays);
       if (newSpreadsheet == null) {
         System.err.println("Error inserting base data for " + fileTitle);
         return null;
@@ -797,8 +784,9 @@ public class GameCharter {
     if (rootParentId == null) {
       return;
     }
-    seasonToFolderId = new HashMap<Integer, String>();
-    Children.List children = drive.children().list(rootParentId);
+    seasonToFolderId = new HashMap<Integer, Map<String, String>>();
+    String query = "mimeType = '" + Constants.FOLDER_MIME + "'";
+    Children.List children = drive.children().list(rootParentId).setQ(query);
     for (ChildReference child : children.execute().getItems()) {
       File f = drive.files().get(child.getId()).execute();
       if (Constants.FOLDER_MIME.equals(f.getMimeType())) {
@@ -807,12 +795,24 @@ public class GameCharter {
           if (year == null || year < 2000 || year > 2050) {
             continue;
           }
-          seasonToFolderId.put(year, f.getId());
+          seasonToFolderId.put(year, getPerWeekFolders(f.getId()));
         } catch (NumberFormatException nfe) {
           continue;
         }
       }
     }
+  }
+
+  private static Map<String, String> getPerWeekFolders(String parentId) throws IOException {
+    Map<String, String> weekFolders = new HashMap<String, String>();
+    weekFolders.put(Constants.SEASON_FOLDER_TAG, parentId);
+    String query = "mimeType = '" + Constants.FOLDER_MIME + "'";
+    Children.List children = drive.children().list(parentId).setQ(query);
+    for (ChildReference child : children.execute().getItems()) {
+      File f = drive.files().get(child.getId()).execute();
+      weekFolders.put(f.getTitle(), f.getId());
+    }
+    return weekFolders;
   }
 
   private static void setFilePermissions(String fileId, String charterUser) throws Exception {
@@ -849,12 +849,12 @@ public class GameCharter {
     }
   }
 
-  private static SpreadsheetEntry insertBaseData(String gameId, String newTitle,
+  private static SpreadsheetEntry insertBaseData(File fileInfo, String gameId, String newTitle,
       List<String> gameInfo, List<PlayRow> plays) {
     SpreadsheetEntry spreadsheet = null;
     for (int i = 0; i < MAX_CREATION_RETRIES; ++i) {
       try {
-        spreadsheet = apiUtils.getUniqueSpreadsheetByName(newTitle);
+        spreadsheet = apiUtils.getSpreadsheetByDriveFile(fileInfo);
         if (spreadsheet == null) {
           return null;
         }

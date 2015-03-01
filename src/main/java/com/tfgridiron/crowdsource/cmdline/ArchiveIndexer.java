@@ -120,6 +120,7 @@ public final class ArchiveIndexer {
     }
     if (!archiveMetadata.containsKey(currentMetadata.getTitle())
         && !indexMetadata.containsKey(currentMetadata.getTitle())) {
+      // We don't have anything there now. Insert something new.
       return insertMetadata(currentMetadata);
     }
     ArchiveMetadata existingData = archiveMetadata.get(currentMetadata.getTitle());
@@ -130,6 +131,8 @@ public final class ArchiveIndexer {
       return false;
     }
     if (currentMetadata.getChecksum().equals(existingData.getChecksum())) {
+      // The checksums aren't the same, but the timestamps have been updated. Only update the
+      // timestamps.
       System.out.println("Not updating metadata for " + currentMetadata.getTitle()
           + " because no contents (via checksum) did not change");
       return false;

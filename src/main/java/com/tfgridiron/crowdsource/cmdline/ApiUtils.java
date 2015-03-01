@@ -15,11 +15,13 @@
 package com.tfgridiron.crowdsource.cmdline;
 
 import com.google.api.services.drive.Drive;
+import com.google.api.services.drive.Drive.Files;
 import com.google.api.services.drive.model.File;
 import com.google.api.services.drive.model.FileList;
 import com.google.api.services.drive.model.Property;
 import com.google.gdata.client.spreadsheet.SpreadsheetQuery;
 import com.google.gdata.client.spreadsheet.SpreadsheetService;
+import com.google.gdata.data.DateTime;
 import com.google.gdata.data.TextConstruct;
 import com.google.gdata.data.spreadsheet.SpreadsheetEntry;
 import com.google.gdata.data.spreadsheet.SpreadsheetFeed;
@@ -38,11 +40,13 @@ import java.util.List;
 public class ApiUtils {
   private final Drive drive;
   private final SpreadsheetService spreadsheetService;
+  private final String rootFolderId;
   private SpreadsheetEntry indexSpreadsheetEntry = null;
 
-  public ApiUtils(Drive drive, SpreadsheetService spreadsheetService) {
+  public ApiUtils(Drive drive, SpreadsheetService spreadsheetService, String rootFolderId) {
     this.drive = drive;
     this.spreadsheetService = spreadsheetService;
+    this.rootFolderId = rootFolderId;
   }
 
   public Drive getDrive() {
@@ -59,35 +63,52 @@ public class ApiUtils {
       return indexSpreadsheetEntry;
     }
     // System.out.println("Fetching index spreadsheet entry anew");
-    indexSpreadsheetEntry = getUniqueSpreadsheetByName(Constants.INDEX_DOCUMENT_TITLE);
+    indexSpreadsheetEntry =
+        getSpreadsheetByTitleAndFolder(Constants.INDEX_DOCUMENT_TITLE, rootFolderId);
     return indexSpreadsheetEntry;
   }
 
-  public SpreadsheetEntry getUniqueSpreadsheetByName(String spreadsheetName) throws IOException,
+  public SpreadsheetEntry getSpreadsheetByTitleAndFolder(String title, String parentFolderId)
+      throws IOException, ServiceException {
+    if (title == null || title.isEmpty()) {
+      return null;
+    }
+    String query = "title = '" + title + "'";
+    if (parentFolderId != null && !parentFolderId.isEmpty()) {
+      query += " and '" + parentFolderId + "' in parents";
+    }
+    Files.List fileList = drive.files().list().setQ(query);
+    FileList files = fileList.execute();
+    if (files.getItems().size() != 1) {
+      System.err.println("Found " + files.getItems().size() + " files matching query " + query);
+      return null;
+    }
+    return getSpreadsheetByDriveFile(files.getItems().get(0));
+  }
+
+  public SpreadsheetEntry getSpreadsheetByDriveFile(File driveFile) throws IOException,
       ServiceException {
-    if (spreadsheetName == null || spreadsheetName.isEmpty()) {
-      System.err.println("getUniqueSpreadsheetByName: no name requested");
+    if (driveFile == null || driveFile.getTitle().isEmpty()) {
       return null;
     }
     SpreadsheetQuery query;
     try {
       query = new SpreadsheetQuery(new URL(Constants.PRIVATE_FULL_SPREADSHEET_FEED_URL));
     } catch (MalformedURLException exception) {
-      System.err.println("Invalid spreedsheet feed url: "
+      System.err.println("Invalid spreadsheet feed url: "
           + Constants.PRIVATE_FULL_SPREADSHEET_FEED_URL);
       return null;
     }
-    query.setTitleQuery(spreadsheetName);
+    query.setTitleQuery(driveFile.getTitle());
     query.setTitleExact(true);
+    query.setUpdatedMax(new DateTime(driveFile.getModifiedDate().getValue() + 1000));
+    query.setUpdatedMin(new DateTime(driveFile.getModifiedDate().getValue() - 1000));
     SpreadsheetFeed spreadsheetFeed = spreadsheetService.getFeed(query, SpreadsheetFeed.class);
     List<SpreadsheetEntry> spreadsheets = spreadsheetFeed.getEntries();
     if (spreadsheets.size() != 1) {
-      // System.out.println("Found " + spreadsheets.size() + " spreadsheets named '" +
-      // spreadsheetName
-      // + "'");
       return null;
     }
-    System.out.println("Found '" + spreadsheetName + "'");
+    System.out.println("Found '" + driveFile.getTitle() + "'");
     return spreadsheets.get(0);
   }
 

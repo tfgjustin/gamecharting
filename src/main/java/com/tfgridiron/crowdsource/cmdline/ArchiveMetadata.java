@@ -26,8 +26,8 @@ public final class ArchiveMetadata {
   private final String zipFileUrl;
   private final int numSpreadsheets;
   private final String fileId;
-  private final DateTime lastUpdated;
   private final String checksum;
+  private DateTime lastUpdated;
 
   public ArchiveMetadata(String title, String zipFileUrl, int numSpreadsheets,
       DateTime lastUpdated, String fileId, String checksum) {
@@ -69,6 +69,10 @@ public final class ArchiveMetadata {
 
   public String getChecksum() {
     return checksum;
+  }
+
+  public void setLastUpdated(DateTime lastUpdated) {
+    this.lastUpdated = lastUpdated;
   }
 
   @Override
