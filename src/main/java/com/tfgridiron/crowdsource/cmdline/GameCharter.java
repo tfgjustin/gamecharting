@@ -181,21 +181,28 @@ public class GameCharter {
       authorize();
       connectToServices();
       loadIndexes();
-      if (ADMIN_COMMAND.equals(args[0])) {
-        adminOp(args);
-      } else if (GAME_COMMAND.equals(args[0])) {
-        loadDataDirectory();
-        gameOp(args);
-      } else if (CHARTER_COMMAND.equals(args[0])) {
-        charterOp(args);
-      } else if (FORCE_CHECKSUMS_COMMAND.equals(args[0])) {
-        forceChecksums(args);
-      } else if (ARCHIVE_COMMAND.equals(args[0])) {
-        archiveOp(args);
-      } else {
-        System.err.println("Unhandled command: " + args[0]);
-        printUsage(1);
-      }
+          switch (args[0]) {
+              case ADMIN_COMMAND:
+                  adminOp(args);
+                  break;
+              case GAME_COMMAND:
+                  loadDataDirectory();
+                  gameOp(args);
+                  break;
+              case CHARTER_COMMAND:
+                  charterOp(args);
+                  break;
+              case FORCE_CHECKSUMS_COMMAND:
+                  forceChecksums(args);
+                  break;
+              case ARCHIVE_COMMAND:
+                  archiveOp(args);
+                  break;
+              default:
+                  System.err.println("Unhandled command: " + args[0]);
+                  printUsage(1);
+                  break;
+          }
       System.exit(0);
     } catch (IOException e) {
       System.err.println(e.getMessage());
@@ -503,7 +510,7 @@ public class GameCharter {
     System.out.println("matching: " + gameIds);
     int MAX_TO_CLONE = 250;
     int num_cloned = 0;
-    List<String> perGameInfo = new ArrayList<String>();
+    
     for (String thisGameId : gameIds) {
       // TODO(P0): Remove this before distribution
       if (num_cloned >= MAX_TO_CLONE) {
@@ -513,7 +520,8 @@ public class GameCharter {
       if (isFutureGame(gameDate)) {
         continue;
       }
-      if (!gameIdToInfo(thisGameId, perGameInfo) || perGameInfo.size() != 7) {
+      List<String> perGameInfo = gameIdToInfo(thisGameId);
+      if (perGameInfo.size() != 7) {
         continue;
       }
       String season = gameDateToSeason(gameDate);
@@ -685,21 +693,22 @@ public class GameCharter {
     archiveIndexer.insertOrUpdateMetadata(newMetadata);
   }
 
-  private static boolean gameIdToInfo(String gameId, List<String> gameInfo) throws Exception {
+  private static List<String> gameIdToInfo(String gameId) throws Exception {
     String awayIdStr = gameId.substring(0, 4);
     String homeIdStr = gameId.substring(4, 8);
     String gameDate = gameId.substring(8);
+    List<String> gameInfo = new ArrayList<String>();
     if (!TEAM_ID_PARSER.matcher(awayIdStr).matches()
         || !TEAM_ID_PARSER.matcher(homeIdStr).matches()) {
       System.err
           .println("Either away ID " + awayIdStr + " or home ID " + homeIdStr + " is invalid");
-      return false;
+      return gameInfo;
     }
     try {
       DATE_FORMATTER.parse(gameDate);
     } catch (ParseException e) {
       System.err.println("Invalid game date: " + gameDate);
-      return false;
+      return gameInfo;
     }
     int awayId = Integer.parseInt(awayIdStr);
     int homeId = Integer.parseInt(homeIdStr);
@@ -708,11 +717,11 @@ public class GameCharter {
     if (awayTeam == null || homeTeam == null) {
       System.err.println("Game: " + gameId + "; one of these IDs is invalid: " + awayId + " or "
           + homeId);
-      return false;
+      return gameInfo;
     }
     if (!localSeasonData.hasGameData(gameId)) {
       System.err.println("Missing game data for game " + gameId);
-      return false;
+      return gameInfo;
     }
     TeamGameStatsRow homeStats =
         localSeasonData.getSeason().getTeamGameStatsTable().getTeamGameStats(gameId, homeId);
@@ -720,11 +729,11 @@ public class GameCharter {
         localSeasonData.getSeason().getTeamGameStatsTable().getTeamGameStats(gameId, awayId);
     if (homeStats == null) {
       System.err.println("Missing home stats for game " + gameId + " team " + homeId);
-      return false;
+      return gameInfo;
     }
     if (awayStats == null) {
       System.err.println("Missing away stats for game " + gameId + " team " + awayId);
-      return false;
+      return gameInfo;
     }
     gameInfo.clear();
     gameInfo.add(gameDate);
@@ -734,7 +743,7 @@ public class GameCharter {
     gameInfo.add(Integer.toString(awayId));
     gameInfo.add(awayTeam);
     gameInfo.add(Integer.toString(awayStats.getPoints()));
-    return true;
+    return gameInfo;
   }
 
   private static void cachePlayByPlayTemplateId() throws Exception {

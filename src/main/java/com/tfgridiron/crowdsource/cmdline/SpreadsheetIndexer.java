@@ -54,7 +54,7 @@ public final class SpreadsheetIndexer {
   private final ApiUtils apiUtils;
   private final AssignmentIndexer assignmentIndexer;
   // The spreadsheet and the worksheets we care about
-  private SpreadsheetEntry spreadsheetEntry;
+  
   private Map<String, WorksheetEntry> worksheetsBySeason;
 
   // Spreadsheets indexed by season ~> title ~> data
@@ -74,9 +74,8 @@ public final class SpreadsheetIndexer {
     }
     perSeasonMetadata = new HashMap<String, Map<String, SpreadsheetMetadata>>();
     perSeasonListEntries = new HashMap<String, Map<String, ListEntry>>();
-    if (spreadsheetEntry == null) {
-      spreadsheetEntry = apiUtils.getIndexSpreadsheetEntry();
-    }
+    SpreadsheetEntry spreadsheetEntry = apiUtils.getIndexSpreadsheetEntry();
+    
     if (spreadsheetEntry == null) {
       System.err.println("Could not get the spreadsheet entry for the index");
       return;
@@ -265,18 +264,20 @@ public final class SpreadsheetIndexer {
     if (metadata == null) {
       return;
     }
-    Map<String, ListEntry> worksheetEntries = null;
+    Map<String, ListEntry> worksheetEntries;
     if (perSeasonListEntries.containsKey(worksheetTitle)) {
       worksheetEntries = perSeasonListEntries.get(worksheetTitle);
-    } else {
+    } 
+    else {
       worksheetEntries = new HashMap<String, ListEntry>();
       perSeasonListEntries.put(worksheetTitle, worksheetEntries);
     }
     worksheetEntries.put(metadata.getTitle(), rowEntry);
-    Map<String, SpreadsheetMetadata> worksheetMetadata = null;
+    Map<String, SpreadsheetMetadata> worksheetMetadata;
     if (perSeasonMetadata.containsKey(worksheetTitle)) {
       worksheetMetadata = perSeasonMetadata.get(worksheetTitle);
-    } else {
+    } 
+    else {
       worksheetMetadata = new HashMap<String, SpreadsheetMetadata>();
       perSeasonMetadata.put(worksheetTitle, worksheetMetadata);
     }
@@ -326,6 +327,7 @@ public final class SpreadsheetIndexer {
     if (pbpWorksheet == null) {
       return null;
     }
+    
     List<String> isDoneInfo = getIsDoneInfo(playByPlaySpreadsheet);
     return calculateWorksheetChecksum(pbpWorksheet, isDoneInfo);
   }
