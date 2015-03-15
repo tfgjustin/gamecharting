@@ -16,6 +16,21 @@ import org.junit.Ignore;
 public class TestCalendarUtils {
     @Test
     public void testSeasonWeek() throws ParseException{
+        // 2008
+        assertEquals(CalendarUtils.gameDateToWeek("20080828"),"Week 01");
+        
+        // 2009
+        assertEquals(CalendarUtils.gameDateToWeek("20090903"),"Week 01");
+        
+        // 2010
+        assertEquals(CalendarUtils.gameDateToWeek("20100902"),"Week 01");
+        
+        // 2011
+        assertEquals(CalendarUtils.gameDateToWeek("20110901"),"Week 01");
+        
+        // 2012
+        assertEquals(CalendarUtils.gameDateToWeek("20120830"),"Week 01");
+        
         // 2013 season
         assertEquals(CalendarUtils.gameDateToWeek("20130822"),"PreSeason");
         assertEquals(CalendarUtils.gameDateToWeek("20130823"),"PreSeason");

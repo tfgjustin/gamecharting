@@ -18,6 +18,7 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.Locale;
 
 /**
  * @author justin@tfgridiron.com (Justin Moore)
@@ -30,22 +31,33 @@ public class CalendarUtils {
   // Historically the first day of bowl games is no earlier than December 15th.
   private static final int BOWL_START_MONTH = Calendar.DECEMBER;
   private static final int BOWL_START_DAY_OF_MONTH = 15;
-  // Historically the first week in which there are games is week 35. So subtract 34 from the week
-  // number to get the week of the season.
-  private static final int SEASON_START_WEEK_OFFSET = 34;
+  
   private static final int SEASON_START_MONTH_CUTOFF = Calendar.FEBRUARY;
   private static final int WEEK_START_CUTOFF = Calendar.TUESDAY;
   private static final SimpleDateFormat DATE_FORMATTER = new SimpleDateFormat("yyyyMMdd");
 
   public static int getSeasonStartWeekOffset(int year){
-      switch (year){
-          case 2015 : return 35;
-          case 2016 : return 35;
-          case 2017 : return 34;
-          case 2018 : return 34;
-          default   : return SEASON_START_WEEK_OFFSET;
+      // The first week of the season, since at least 2008, is based around the closest
+      // thursday to Sept 1.  Which can be figured out based on, the day of Sept 1.
+      // The offsets below yield results consistent with ESPN from 2008-2015, and 
+      // with educated guesses about the first week of 2016-2018, and are verified
+      // in the Unit testing.  The rule is not consistent with all time, since in 2004
+      // and earlier, pre-season games (kickoff classics) played a week earlier in August,
+      // were deemed week 1 by ESPN
+      Calendar cal = Calendar.getInstance();
+      cal.set(Calendar.YEAR, year);
+      cal.set(Calendar.MONTH, Calendar.SEPTEMBER);
+      cal.set(Calendar.DAY_OF_MONTH, 1);
+      switch (cal.get(Calendar.DAY_OF_WEEK)){
+          case Calendar.SUNDAY : return 34;
+          case Calendar.MONDAY : return 34;
+          case Calendar.TUESDAY : return 35;
+          case Calendar.WEDNESDAY : return 35;
+          case Calendar.THURSDAY : return 35;
+          case Calendar.FRIDAY : return 34;
+          case Calendar.SATURDAY : return 34;
+          default : return 34;    
       }
-      
   }
   
   public static String gameDateToSeason(String gameDate) throws ParseException {
@@ -122,4 +134,5 @@ public class CalendarUtils {
       
       return DATE_FORMATTER.parse(gameDate);
   }
-}
+  
+}  
