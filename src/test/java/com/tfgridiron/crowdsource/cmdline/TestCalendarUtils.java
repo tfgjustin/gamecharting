@@ -65,6 +65,59 @@ public class TestCalendarUtils {
         assertEquals(CalendarUtils.gameDateToWeek("20150112"),"Bowls");
         assertEquals(CalendarUtils.gameDateToWeek("20150201"),"PreSeason");
         
+        //2015
+        assertEquals(CalendarUtils.gameDateToWeek("20150903"),"Week 01");
+        assertEquals(CalendarUtils.gameDateToWeek("20150904"),"Week 01");
+        assertEquals(CalendarUtils.gameDateToWeek("20150905"),"Week 01");
+        assertEquals(CalendarUtils.gameDateToWeek("20150906"),"Week 01");
+        assertEquals(CalendarUtils.gameDateToWeek("20150907"),"Week 01");
+        assertEquals(CalendarUtils.gameDateToWeek("20150912"),"Week 02");
+        assertEquals(CalendarUtils.gameDateToWeek("20150917"),"Week 03");
+        assertEquals(CalendarUtils.gameDateToWeek("20150918"),"Week 03");
+        assertEquals(CalendarUtils.gameDateToWeek("20150919"),"Week 03");
+        assertEquals(CalendarUtils.gameDateToWeek("20150924"),"Week 04");
+        assertEquals(CalendarUtils.gameDateToWeek("20150925"),"Week 04");
+        assertEquals(CalendarUtils.gameDateToWeek("20150926"),"Week 04");
+        assertEquals(CalendarUtils.gameDateToWeek("20151001"),"Week 05");
+        assertEquals(CalendarUtils.gameDateToWeek("20151002"),"Week 05");
+        assertEquals(CalendarUtils.gameDateToWeek("20151003"),"Week 05");
+        assertEquals(CalendarUtils.gameDateToWeek("20151008"),"Week 06");
+        assertEquals(CalendarUtils.gameDateToWeek("20151009"),"Week 06");
+        assertEquals(CalendarUtils.gameDateToWeek("20151010"),"Week 06");
+        assertEquals(CalendarUtils.gameDateToWeek("20151015"),"Week 07");
+        assertEquals(CalendarUtils.gameDateToWeek("20151016"),"Week 07");
+        assertEquals(CalendarUtils.gameDateToWeek("20151017"),"Week 07");
+        assertEquals(CalendarUtils.gameDateToWeek("20151022"),"Week 08");
+        assertEquals(CalendarUtils.gameDateToWeek("20151023"),"Week 08");
+        assertEquals(CalendarUtils.gameDateToWeek("20151024"),"Week 08");
+        assertEquals(CalendarUtils.gameDateToWeek("20151029"),"Week 09");
+        assertEquals(CalendarUtils.gameDateToWeek("20151030"),"Week 09");
+        assertEquals(CalendarUtils.gameDateToWeek("20151031"),"Week 09");
+        assertEquals(CalendarUtils.gameDateToWeek("20151105"),"Week 10");
+        assertEquals(CalendarUtils.gameDateToWeek("20151106"),"Week 10");
+        assertEquals(CalendarUtils.gameDateToWeek("20151107"),"Week 10");
+        assertEquals(CalendarUtils.gameDateToWeek("20151112"),"Week 11");
+        assertEquals(CalendarUtils.gameDateToWeek("20151113"),"Week 11");
+        assertEquals(CalendarUtils.gameDateToWeek("20151114"),"Week 11");
+        assertEquals(CalendarUtils.gameDateToWeek("20151119"),"Week 12");
+        assertEquals(CalendarUtils.gameDateToWeek("20151120"),"Week 12");
+        assertEquals(CalendarUtils.gameDateToWeek("20151121"),"Week 12");
+        assertEquals(CalendarUtils.gameDateToWeek("20151126"),"Week 13");
+        assertEquals(CalendarUtils.gameDateToWeek("20151127"),"Week 13");
+        assertEquals(CalendarUtils.gameDateToWeek("20151128"),"Week 13");
+        assertEquals(CalendarUtils.gameDateToWeek("20151205"),"Week 14");
+        assertEquals(CalendarUtils.gameDateToWeek("20151212"),"Week 15");
+        
+        //2016
+        assertEquals(CalendarUtils.gameDateToWeek("20160903"),"Week 01");
+        
+        //2017
+        assertEquals(CalendarUtils.gameDateToWeek("20170902"),"Week 01");
+        
+        //2018
+        assertEquals(CalendarUtils.gameDateToWeek("20180901"),"Week 01");
+        
+        
         try{
             CalendarUtils.gameDateToWeek("2015010");
             fail("Expected ParseException from 2015010");

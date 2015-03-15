@@ -37,6 +37,17 @@ public class CalendarUtils {
   private static final int WEEK_START_CUTOFF = Calendar.TUESDAY;
   private static final SimpleDateFormat DATE_FORMATTER = new SimpleDateFormat("yyyyMMdd");
 
+  public static int getSeasonStartWeekOffset(int year){
+      switch (year){
+          case 2015 : return 35;
+          case 2016 : return 35;
+          case 2017 : return 34;
+          case 2018 : return 34;
+          default   : return SEASON_START_WEEK_OFFSET;
+      }
+      
+  }
+  
   public static String gameDateToSeason(String gameDate) throws ParseException {
       
     Calendar cal = Calendar.getInstance();
@@ -64,7 +75,8 @@ public class CalendarUtils {
       return BOWL_WEEK;
     }
     // It's not in bowl season, so lets figure out which week of the season.
-    Integer weekNum = cal.get(Calendar.WEEK_OF_YEAR) - SEASON_START_WEEK_OFFSET;
+    Integer year = cal.get(Calendar.YEAR);
+    Integer weekNum = cal.get(Calendar.WEEK_OF_YEAR) - getSeasonStartWeekOffset(year);
     if (cal.get(Calendar.DAY_OF_WEEK) < WEEK_START_CUTOFF){
         weekNum -= 1;
     }
